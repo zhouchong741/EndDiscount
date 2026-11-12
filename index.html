@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End Clothing Sale Products</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        .product-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .product-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 移动端紧凑样式 */
+        @media (max-width: 640px) {
+            .product-card {
+                border-radius: 8px;
+            }
+
+            .product-img {
+                height: 140px;
+            }
+
+            .product-info {
+                padding: 8px;
+            }
+
+            .product-name {
+                font-size: 11px;
+                line-height: 1.3;
+            }
+
+            .product-price {
+                font-size: 13px;
+            }
+
+            .product-original {
+                font-size: 10px;
+            }
+
+            .discount-badge {
+                font-size: 9px;
+                padding: 2px 4px;
+            }
+        }
+
+        /* 平板及以上 */
+        @media (min-width: 641px) {
+            .product-img {
+                height: 200px;
+            }
+
+            .product-info {
+                padding: 12px;
+            }
+
+            .product-name {
+                font-size: 13px;
+            }
+
+            .product-price {
+                font-size: 16px;
+            }
+
+            .product-original {
+                font-size: 12px;
+            }
+        }
+
+        /* 大屏 */
+        @media (min-width: 1024px) {
+            .product-img {
+                height: 240px;
+            }
+
+            .product-info {
+                padding: 16px;
+            }
+        }
+
+        /* 搜索框样式 */
+        .search-box {
+            background: white;
+            border: 1px solid #e5e5e5;
+            color: #333;
+        }
+
+        .search-box::placeholder {
+            color: #999;
+        }
+
+        .search-box:focus {
+            background: white;
+            border-color: #ef4444;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+        }
+
+        /* 更新时间样式 */
+        .update-time {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            display: inline-block;
+        }
+
+        /* 回到顶部按钮样式 */
+        #back-to-top {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            cursor: pointer;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1000;
+            border: none;
+            outline: none;
+        }
+
+        #back-to-top.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        #back-to-top:hover {
+            transform: scale(1.1) translateY(-5px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+        }
+
+        #back-to-top:active {
+            transform: scale(0.95);
+        }
+
+        #back-to-top svg {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* Tab 样式 */
+        .tab-btn,
+        .type-btn {
+            background: #e5e5e5;
+            color: #666;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .tab-btn.active,
+        .type-btn.active {
+            background: #ef4444;
+            color: white;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+
+<body class="p-2 sm:p-4 lg:p-6">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-3 sm:mb-6">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 sm:gap-4">
+                <div>
+                    <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-800">End Clothing Sale</h1>
+                    <p class="text-gray-500 text-xs sm:text-sm mt-1">Discount Collection</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                    <span class="text-xs sm:text-sm text-gray-500" id="item-count">Loading...</span>
+                    <select id="brand-filter"
+                        class="search-box px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-lg max-w-[120px] sm:max-w-[150px]">
+                        <option value="all">所有品牌</option>
+                    </select>
+                    <input type="text" id="search" placeholder="搜索产品..."
+                        class="search-box w-32 sm:w-40 lg:w-48 px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-lg">
+                </div>
+            </div>
+        </header>
+
+        <!-- Type Tabs -->
+        <div class="flex gap-2 mb-4" role="group" aria-label="商品类型">
+            <button class="type-btn active px-5 py-2 rounded-full text-sm font-medium transition-colors"
+                data-type="men" aria-pressed="true">Men</button>
+            <button class="type-btn px-5 py-2 rounded-full text-sm font-medium transition-colors"
+                data-type="women" aria-pressed="false">Women</button>
+        </div>
+
+        <!-- Discount Tabs -->
+        <div class="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+            <button class="tab-btn active px-4 py-2 rounded-full text-sm font-medium transition-colors"
+                data-discount="70% off">70% Off</button>
+            <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium transition-colors"
+                data-discount="65% off">65% Off</button>
+            <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium transition-colors"
+                data-discount="60% off">60% Off</button>
+            <button class="tab-btn px-4 py-2 rounded-full text-sm font-medium transition-colors"
+                data-discount="all">全部</button>
+        </div>
+
+        <!-- 更新时间 -->
+        <div class="mb-4 sm:mb-6 flex justify-between items-center">
+            <span class="update-time" id="update-time">📅 最后更新: 加载中...</span>
+        </div>
+
+        <!-- Product Grid: 2列(手机) / 3列(平板) / 4列(桌面) / 5列(大屏) -->
+        <div id="product-grid"
+            class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
+            <!-- Products will be inserted here -->
+        </div>
+
+        <!-- Footer -->
+        <footer class="mt-6 text-center text-gray-400 text-xs">
+            <p>Data auto-updates every 6 hours</p>
+        </footer>
+    </div>
+
+    <!-- Back to Top Button -->
+    <button id="back-to-top" title="回到顶部">
+        <svg viewBox="0 0 24 24">
+            <path d="M18 15l-6-6-6 6" />
+        </svg>
+    </button>
+
+    <!-- Load Data -->
+    <script src="data.js"></script>
+
+    <script>
+        const grid = document.getElementById('product-grid');
+        const searchInput = document.getElementById('search');
+        const countLabel = document.getElementById('item-count');
+        const brandFilter = document.getElementById('brand-filter');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const typeBtns = document.querySelectorAll('.type-btn');
+
+        let currentType = 'men';
+        let currentDiscount = '70% off';
+        let currentSearch = '';
+        let currentBrand = 'all';
+
+        /* BRAND EXTRACTION */
+        function extractBrand(name) {
+            if (!name) return "Unknown";
+            return name.trim().split(" ")[0];
+        }
+
+        function filterAndRender() {
+            if (!window.products) return;
+
+            let filtered = getTypeProducts();
+
+            // Filter by discount
+            if (currentDiscount !== 'all') {
+                filtered = filtered.filter(p => p.discount === currentDiscount);
+            }
+
+            // Filter by brand (Case-insensitive)
+            if (currentBrand !== 'all') {
+                filtered = filtered.filter(p => {
+                    const brand = extractBrand(p.name);
+                    return brand.toLowerCase() === currentBrand.toLowerCase();
+                });
+            }
+
+            // Filter by search
+            if (currentSearch) {
+                filtered = filtered.filter(p =>
+                    p.name.toLowerCase().includes(currentSearch.toLowerCase())
+                );
+            }
+
+            renderProducts(filtered);
+        }
+
+        function renderProducts(items) {
+            grid.innerHTML = '';
+            countLabel.textContent = `${items.length} 件`;
+
+            if (items.length === 0) {
+                grid.innerHTML = '<p class="col-span-full text-center text-gray-400 py-10">未找到相关产品</p>';
+                return;
+            }
+
+            items.forEach(product => {
+                const card = document.createElement('div');
+                card.className = 'product-card bg-white rounded-lg overflow-hidden flex flex-col shadow-md';
+
+                const imgUrl = product.image_url || 'https://via.placeholder.com/300x400?text=No+Image';
+                const formatter = new Intl.NumberFormat('zh-CN', {
+                    style: 'currency',
+                    currency: product.currency || 'CNY',
+                    maximumFractionDigits: 2
+                });
+                const price = product.discounted_price == null ? 'N/A' : formatter.format(product.discounted_price);
+                const originalPrice = product.original_price == null ? 'N/A' : formatter.format(product.original_price);
+
+                card.innerHTML = `
+                    <a href="${product.url}" target="_blank" class="block relative product-img overflow-hidden bg-gray-100">
+                        <img src="${imgUrl}" alt="${product.name}" class="w-full h-full object-cover object-center" loading="lazy">
+                        <div class="discount-badge absolute top-1 right-1 sm:top-2 sm:right-2 bg-red-500 text-white font-bold rounded px-1.5 py-0.5">
+                            ${product.discount || 'SALE'}
+                        </div>
+                    </a>
+                    <div class="product-info flex-1 flex flex-col">
+                        <h3 class="product-name font-medium text-gray-700 line-clamp-2 mb-1 sm:mb-2" title="${product.name}">${product.name}</h3>
+                        <div class="mt-auto flex items-baseline gap-1 sm:gap-2">
+                            <span class="product-price font-bold text-red-500">${price}</span>
+                            <span class="product-original text-gray-500 line-through">${originalPrice}</span>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function getTypeProducts() {
+            return window.products.filter(p => (p.type || 'men') === currentType);
+        }
+
+        function updateBrands() {
+            // Show brands belonging to the selected type.
+            const brandsMap = new Map(); // lowercase -> original
+            getTypeProducts().forEach(p => {
+                const brand = extractBrand(p.name);
+                const lower = brand.toLowerCase();
+                if (!brandsMap.has(lower)) {
+                    brandsMap.set(lower, brand);
+                }
+            });
+
+            const sortedBrands = Array.from(brandsMap.values()).sort((a, b) =>
+                a.toLowerCase().localeCompare(b.toLowerCase())
+            );
+
+            brandFilter.innerHTML = '<option value="all">所有品牌</option>';
+            sortedBrands.forEach(brand => {
+                const option = document.createElement('option');
+                option.value = brand;
+                option.textContent = brand;
+                brandFilter.appendChild(option);
+            });
+
+            currentBrand = brandsMap.get(currentBrand.toLowerCase()) || 'all';
+            brandFilter.value = currentBrand;
+        }
+
+        if (window.products) {
+            updateBrands();
+            filterAndRender();
+
+            // 动态显示更新时间
+            if (window.updateTime) {
+                document.getElementById('update-time').textContent = `📅 最后更新: ${window.updateTime}`;
+            }
+
+            // Type switching
+            typeBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    currentType = btn.dataset.type;
+                    typeBtns.forEach(b => {
+                        const active = b === btn;
+                        b.classList.toggle('active', active);
+                        b.setAttribute('aria-pressed', String(active));
+                    });
+                    updateBrands();
+                    filterAndRender();
+                });
+            });
+
+            // Discount switching
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentDiscount = btn.dataset.discount;
+                    filterAndRender();
+                });
+            });
+
+            // Brand filter change
+            brandFilter.addEventListener('change', (e) => {
+                currentBrand = e.target.value;
+                filterAndRender();
+            });
+
+            // Search input
+            searchInput.addEventListener('input', (e) => {
+                currentSearch = e.target.value;
+                filterAndRender();
+            });
+
+            // 回到顶部逻辑
+            const backToTopBtn = document.getElementById('back-to-top');
+            window.addEventListener('scroll', () => {
+                if (window.scrollY > window.innerHeight) {
+                    backToTopBtn.classList.add('show');
+                } else {
+                    backToTopBtn.classList.remove('show');
+                }
+            });
+
+            backToTopBtn.addEventListener('click', () => {
+                window.scrollTo({
+                    top: 0,
+                    behavior: 'smooth'
+                });
+            });
+        } else {
+            grid.innerHTML = '<p class="col-span-full text-center text-gray-400 py-10">No data found. Please run the scraper first.</p>';
+        }
+    </script>
+</body>
+
+</html>

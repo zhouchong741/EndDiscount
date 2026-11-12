@@ -65,6 +65,27 @@ class FastScraperTests(unittest.TestCase):
         self.assertEqual(scraper.format_change_desc(a, b), "上新 1 / 下架 1")
         self.assertEqual(scraper.format_change_desc(a, c), "价格或信息更新")
 
+    def test_send_dingtalk_notification(self):
+        from unittest.mock import patch
+        with patch("requests.post") as mock_post:
+            mock_post.return_value = Mock(status_code=200, text='{"errcode":0}')
+            ok = scraper.send_dingtalk_notification(
+                total_count=100,
+                total_desc="增加 5",
+                men_count=60,
+                men_desc="增加 3",
+                women_count=40,
+                women_desc="增加 2",
+                webhook="https://example.com/fake_webhook",
+            )
+            self.assertTrue(ok)
+            mock_post.assert_called_once()
+            call_kwargs = mock_post.call_args[1]
+            payload = call_kwargs["json"]
+            self.assertEqual(payload["msgtype"], "markdown")
+            self.assertIn("End70 数据已更新", payload["markdown"]["text"])
+            self.assertIn("增加 5", payload["markdown"]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

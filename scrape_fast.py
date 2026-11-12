@@ -32,6 +32,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FILE = os.path.join(BASE_DIR, "endclothing_70off.json")
 DATA_JS_FILE = os.path.join(BASE_DIR, "data.js")
 
+DINGTALK_WEBHOOK = os.getenv(
+    "DINGTALK_WEBHOOK",
+    "https://oapi.dingtalk.com/robot/send?access_token=5945ce9476563718586b7134fbe53ff8e501c6d1425c71c67b5a365d27f7995b",
+)
+
 
 def format_price(value):
     """保持与原脚本一致：整数价格转为 int，小数保留 float。"""
@@ -231,6 +236,38 @@ def format_change_desc(old_items, new_items):
     return "无变化"
 
 
+def send_dingtalk_notification(total_count, total_desc, men_count, men_desc, women_count, women_desc, webhook=None):
+    """当数据变化且不在 GitHub Actions 环境中时直接调用钉钉 Webhook 推送通知。"""
+    webhook_url = webhook or DINGTALK_WEBHOOK
+    if not webhook_url:
+        return False
+    beijing_tz = timezone(timedelta(hours=8))
+    now_str = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
+    title = "End70 自动更新成功"
+    text = (
+        f"### End70 数据已更新 🚀\n\n"
+        f"**更新时间**: {now_str}\n"
+        f"**Men**: {men_count}（{men_desc}）\n"
+        f"**Women**: {women_count}（{women_desc}）\n"
+        f"**总计**: {total_count}（{total_desc}）\n\n"
+        f"[点击访问](https://zhouchong741.github.io/EndDiscount/)"
+    )
+    payload = {
+        "msgtype": "markdown",
+        "markdown": {
+            "title": title,
+            "text": text,
+        },
+    }
+    try:
+        resp = requests.post(webhook_url, json=payload, timeout=10)
+        print(f"DingTalk notification sent: status={resp.status_code}, response={resp.text}", flush=True)
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"Failed to send DingTalk notification: {e}", flush=True)
+        return False
+
+
 def main():
     started = time.perf_counter()
     try:
@@ -250,8 +287,18 @@ def main():
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:
             save_data(all_products)
+            # 如果不在 GitHub Actions 环境（如在 VPS 独立运行），直接发送钉钉通知
+            if os.getenv("GITHUB_ACTIONS") != "true":
+                send_dingtalk_notification(
+                    final_count,
+                    format_change_desc(existing, all_products),
+                    final_counts["men"],
+                    format_change_desc(existing_by_type["men"], results_by_type["men"]),
+                    final_counts["women"],
+                    format_change_desc(existing_by_type["women"], results_by_type["women"]),
+                )
         else:
-            print("No product changes detected; skipping file write.", flush=True)
+            print("No product changes detected; skipping file write and notification.", flush=True)
 
         final_count = len(all_products)
         final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}

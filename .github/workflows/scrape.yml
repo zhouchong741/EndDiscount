@@ -1,9 +1,9 @@
-name: Hourly Fast Scrape and Deploy
+name: 5-Minute Fast Scrape and Deploy
 
 on:
   schedule:
-    # 每1小时运行一次
-    - cron: '7 * * * *'
+    # 每5分钟运行一次
+    - cron: '*/5 * * * *'
   workflow_dispatch: # 允许手动触发
 
 concurrency:
@@ -39,6 +39,7 @@ jobs:
         run: python -u scrape_fast.py
 
       - name: Commit and Push changes
+        if: env.DATA_CHANGED == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -51,19 +52,22 @@ jobs:
           fi
 
       - name: Setup Pages
+        if: env.DATA_CHANGED == 'true'
         uses: actions/configure-pages@v4
 
       - name: Upload artifact
+        if: env.DATA_CHANGED == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
 
       - name: Deploy to GitHub Pages
+        if: env.DATA_CHANGED == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
 
       - name: Notify DingTalk
-        if: success()
+        if: success() && env.DATA_CHANGED == 'true'
         run: |
           curl 'https://oapi.dingtalk.com/robot/send?access_token=5945ce9476563718586b7134fbe53ff8e501c6d1425c71c67b5a365d27f7995b' \
             -H 'Content-Type: application/json' \

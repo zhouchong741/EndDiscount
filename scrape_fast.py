@@ -217,8 +217,18 @@ def save_data(products_dict, json_path=OUTPUT_FILE, js_path=DATA_JS_FILE):
         f.write(f'window.updateTime = "{update_time}";\n')
 
 
-def format_change_desc(diff):
-    return f"增加 {diff}" if diff > 0 else f"减少 {abs(diff)}" if diff < 0 else "无变化"
+def format_change_desc(old_items, new_items):
+    diff = len(new_items) - len(old_items)
+    if diff > 0:
+        return f"增加 {diff}"
+    if diff < 0:
+        return f"减少 {abs(diff)}"
+    added = len(set(new_items.keys()) - set(old_items.keys()))
+    if added > 0:
+        return f"上新 {added} / 下架 {added}"
+    if old_items != new_items:
+        return "价格或信息更新"
+    return "无变化"
 
 
 def main():
@@ -226,8 +236,8 @@ def main():
     try:
         existing = load_existing_data()
         initial_count = len(existing)
-        initial_counts = {
-            pt: sum(1 for item in existing.values() if item.get("type", "men") == pt)
+        existing_by_type = {
+            pt: {k: v for k, v in existing.items() if v.get("type", "men") == pt}
             for pt in COLLECTIONS
         }
         print(f"Loaded {initial_count} existing products.", flush=True)
@@ -237,25 +247,31 @@ def main():
         for pt in COLLECTIONS:
             all_products.update(results_by_type[pt])
 
-        save_data(all_products)
+        has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
+        if has_changed:
+            save_data(all_products)
+        else:
+            print("No product changes detected; skipping file write.", flush=True)
+
         final_count = len(all_products)
         final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}
 
         env_file = os.getenv("GITHUB_ENV")
         if env_file:
             with open(env_file, "a", encoding="utf-8") as f:
+                f.write(f"DATA_CHANGED={'true' if has_changed else 'false'}\n")
                 f.write(f"PRODUCT_COUNT={final_count}\n")
-                f.write(f"PRODUCT_CHANGE_DESC={format_change_desc(final_count - initial_count)}\n")
+                f.write(f"PRODUCT_CHANGE_DESC={format_change_desc(existing, all_products)}\n")
                 f.write(f"MEN_PRODUCT_COUNT={final_counts['men']}\n")
-                f.write(f"MEN_CHANGE_DESC={format_change_desc(final_counts['men'] - initial_counts['men'])}\n")
+                f.write(f"MEN_CHANGE_DESC={format_change_desc(existing_by_type['men'], results_by_type['men'])}\n")
                 f.write(f"WOMEN_PRODUCT_COUNT={final_counts['women']}\n")
-                f.write(f"WOMEN_CHANGE_DESC={format_change_desc(final_counts['women'] - initial_counts['women'])}\n")
+                f.write(f"WOMEN_CHANGE_DESC={format_change_desc(existing_by_type['women'], results_by_type['women'])}\n")
 
         elapsed = time.perf_counter() - started
         print(
             f"Complete: total={final_count} "
             f"(men={final_counts['men']}, women={final_counts['women']}) "
-            f"elapsed={elapsed:.2f}s",
+            f"changed={has_changed} elapsed={elapsed:.2f}s",
             flush=True,
         )
         return 0

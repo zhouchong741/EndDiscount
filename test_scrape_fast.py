@@ -57,6 +57,14 @@ class FastScraperTests(unittest.TestCase):
         self.assertEqual(len(results["men"]), 1)
         self.assertEqual(len(results["women"]), 1)
 
+    def test_format_change_desc_detects_swaps_and_updates(self):
+        a = {("men", "u1"): {"price": 10}}
+        b = {("men", "u2"): {"price": 10}}
+        c = {("men", "u1"): {"price": 8}}
+        self.assertEqual(scraper.format_change_desc(a, a), "无变化")
+        self.assertEqual(scraper.format_change_desc(a, b), "上新 1 / 下架 1")
+        self.assertEqual(scraper.format_change_desc(a, c), "价格或信息更新")
+
 
 if __name__ == "__main__":
     unittest.main()

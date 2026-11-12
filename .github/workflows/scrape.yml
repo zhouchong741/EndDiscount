@@ -1,9 +1,9 @@
-name: 3-Hourly Fast Scrape and Deploy
+name: Hourly Fast Scrape and Deploy
 
 on:
   schedule:
-    # 每3小时运行一次
-    - cron: '7 */3 * * *'
+    # 每1小时运行一次
+    - cron: '7 * * * *'
   workflow_dispatch: # 允许手动触发
 
 concurrency:

@@ -1,9 +1,9 @@
-name: 5-Minute Fast Scrape and Deploy
+name: Fast Scrape and Deploy
 
 on:
   schedule:
-    # 每5分钟运行一次
-    - cron: '*/5 * * * *'
+    # 避开整点与5分倍数拥堵：每20分钟执行一次（第7, 27, 47分钟）
+    - cron: '7,27,47 * * * *'
   workflow_dispatch: # 允许手动触发
 
 concurrency:

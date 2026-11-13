@@ -162,7 +162,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
     m_prev = re.search(r"Loaded (\d+) existing products", raw)
     m_comp = re.search(r"Complete: total=(\d+) \(men=(\d+), women=(\d+)\) changed=(True|False) elapsed=([\d.]+)s", raw)
     m_link = re.search(r"(?m)^Link:\s*(\S+)", raw)
-    m_push = re.search(r"(Feishu|DingTalk) notification sent: status=(\d+), response=(.+)", raw)
+    m_push = re.search(r"([A-Za-z]+) notification sent: status=(\d+), response=(.+)", raw)
     m_fail = re.search(r"Scrape failed:\s*(.+)", raw)
     site_url = m_link.group(1).strip() if m_link else "https://discount.19930216.xyz"
 
@@ -269,7 +269,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
             f"总计：{_format_preview_line(prev_total, total, diff_str)}\n"
             f"链接：{site_url}"
         )
-        push_tag = "Feishu Sent" if (m_push and m_push.group(1) == "Feishu") else ("DingTalk Sent" if m_push else "Changed")
+        push_tag = "Feishu Sent" if (m_push and m_push.group(1) == "Feishu") else ("Webhook Sent" if m_push else "Changed")
         return {
             "id": run_id,
             "time": start_time[11:],
@@ -394,7 +394,7 @@ def _parse_end_block(block, run_id):
             "full_time": start_time,
             "status": "push",
             "summary": summary,
-            "tag": "Feishu Sent" if has_feishu else "DingTalk Sent",
+            "tag": "Feishu Sent" if has_feishu else "Webhook Sent",
             "dur": dur_str,
             "dur_val": dur_val,
             "fields": [
@@ -512,7 +512,7 @@ def _parse_tlh_block(block, run_id):
             fields.append(["Webhook Sent", "\n".join(notify_urls)])
 
         has_feishu = "open.feishu.cn" in raw or "Feishu" in raw or "飞书" in raw
-        push_tag = "Feishu Sent" if (notify_urls and has_feishu) else ("DingTalk Sent" if notify_urls else "Changed")
+        push_tag = "Feishu Sent" if (notify_urls and has_feishu) else ("Webhook Sent" if notify_urls else "Changed")
         return {
             "id": run_id,
             "time": start_time[11:],
@@ -1617,7 +1617,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
             const pushHtml = r.push_preview ? `
               <div class="mt-3 pt-3" style="border-top: 1px solid var(--drawer-border);">
-                <div class="font-semibold mb-1.5" style="color: var(--status-push-text);">${r.tag && r.tag.startsWith('Feishu') ? '▾ Feishu Card Preview:' : '▾ DingTalk Payload Preview:'}</div>
+                <div class="font-semibold mb-1.5" style="color: var(--status-push-text);">${r.tag && r.tag.startsWith('Feishu') ? '▾ Feishu Card Preview:' : '▾ Webhook Payload Preview:'}</div>
                 <div class="cli-drawer-code rounded-xl p-3 whitespace-pre-wrap break-words leading-6">${escapeHtml(r.push_preview)}</div>
               </div>
             ` : '';

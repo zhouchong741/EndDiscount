@@ -29,7 +29,7 @@ Loaded 848 existing products.
 [men] matched target discounts (60%/65%/70% off): 478
 [women] Algolia pre-filtered hits=370 pages=1
 [women] matched target discounts (60%/65%/70% off): 369
-DingTalk notification sent: status=200, response={"errcode":0,"errmsg":"ok"}
+Feishu notification sent: status=200, response={"StatusCode":0,"StatusMessage":"success"}
 Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
 ==================== [2026-11-13 09:20:04] Finished (Exit: 0) ===================="""
 
@@ -58,7 +58,7 @@ Men: 479 -> 478 (-1)
 Women: 369 -> 371 (+2)
 Total: 848 -> 849 (+1)
 Link: https://discount.19930216.xyz
-DingTalk notification sent: status=200, response={"errcode":0,"errmsg":"ok"}
+Feishu notification sent: status=200, response={"StatusCode":0,"StatusMessage":"success"}
 Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
 ==================== [2026-11-13 09:50:03] Finished (Exit: 0) ===================="""
 
@@ -78,7 +78,7 @@ Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
 [END-Montane] Check complete. Prev: 41, Curr: 41, Change: 0
 [END-Patagonia] Check complete. Prev: 128, Curr: 128, Change: 0
 [END-HOKA ONE ONE] Check complete. Prev: 0, Curr: 16, Change: 16
-info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
+info: 发送通知到: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
 ==================== [2026-11-13 09:00:03] Finished (Exit: 0) ===================="""
 
         runs, _ = web_log.parse_log_runs("end", sample)
@@ -97,7 +97,7 @@ info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
         sample = """==================== [2026-11-13 09:30:01] Crawler End Started ====================
 [END-Montane] Check complete. 变化: 41 -> 41 (0)
 [END-Arcteryx] Check complete. 变化: 15 -> 14 (-1)
-info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
+info: 发送通知到: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
 ==================== [2026-11-13 09:30:03] Finished (Exit: 0) ===================="""
 
         runs, _ = web_log.parse_log_runs("end", sample)

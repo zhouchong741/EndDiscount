@@ -124,20 +124,36 @@ def _split_log_blocks(log_text):
     return blocks
 
 
-def _parse_end70_block(block, run_id):
+def _format_signed_diff(diff):
+    if diff > 0:
+        return f"+{diff}"
+    if diff < 0:
+        return f"-{abs(diff)}"
+    return "0"
+
+
+def _parse_end70_block(block, run_id, prev_counts=None):
     raw = "\n".join(block["lines"])
     start_time = block["start_time"]
     end_time = block["end_time"] or start_time
     exit_code = block["exit_code"]
 
+    m_chg_line = re.search(
+        r"变化:\s*Men\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)\s*\|\s*Women\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)\s*\|\s*Total\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)",
+        raw,
+    )
     m_prev = re.search(r"Loaded (\d+) existing products", raw)
-    m_men_hits = re.search(r"\[men\] Algolia pre-filtered hits=(\d+)", raw)
-    m_women_hits = re.search(r"\[women\] Algolia pre-filtered hits=(\d+)", raw)
+    m_men_hits = re.search(r"\[men\] hits=(\d+) \(\d+p\) -> matched=", raw) or re.search(
+        r"\[men\] Algolia pre-filtered hits=(\d+)", raw
+    )
+    m_women_hits = re.search(r"\[women\] hits=(\d+) \(\d+p\) -> matched=", raw) or re.search(
+        r"\[women\] Algolia pre-filtered hits=(\d+)", raw
+    )
     m_comp = re.search(r"Complete: total=(\d+) \(men=(\d+), women=(\d+)\) changed=(True|False) elapsed=([\d.]+)s", raw)
     m_push = re.search(r"DingTalk notification sent: status=(\d+), response=(.+)", raw)
     m_fail = re.search(r"Scrape failed:\s*(.+)", raw)
 
-    prev_total = int(m_prev.group(1)) if m_prev else None
+    prev_total = int(m_chg_line.group(7)) if m_chg_line else (int(m_prev.group(1)) if m_prev else None)
     dur_val = float(m_comp.group(5)) if m_comp else _calc_duration_sec(start_time, block["end_time"])
     dur_str = f"{dur_val:.2f}s" if dur_val is not None else "--"
 
@@ -181,29 +197,46 @@ def _parse_end70_block(block, run_id):
     men_hits = m_men_hits.group(1) if m_men_hits else str(men)
     women_hits = m_women_hits.group(1) if m_women_hits else str(women)
 
+    if m_chg_line:
+        men_diff_str = m_chg_line.group(3).strip()
+        women_diff_str = m_chg_line.group(6).strip()
+        total_diff_str = m_chg_line.group(9).strip()
+    elif prev_counts and (prev_total is None or prev_total == prev_counts[0]):
+        men_diff_str = _format_signed_diff(men - prev_counts[1])
+        women_diff_str = _format_signed_diff(women - prev_counts[2])
+        total_diff_str = _format_signed_diff(total - prev_counts[0])
+    else:
+        men_diff_str = None
+        women_diff_str = None
+        total_diff_str = _format_signed_diff(total - prev_total) if prev_total is not None else "0"
+
+    men_suffix = f" ({men_diff_str})" if men_diff_str is not None else ""
+    women_suffix = f" ({women_diff_str})" if women_diff_str is not None else ""
+    breakdown = f"Men: hits={men_hits} -> matched={men}{men_suffix}\nWomen: hits={women_hits} -> matched={women}{women_suffix}"
+
     if changed or m_push:
-        diff_str = ""
         summary = f"{total} items ({men}M / {women}W)"
         if prev_total is not None and prev_total != total:
             diff = total - prev_total
-            diff_str = f"+{diff}" if diff > 0 else f"-{abs(diff)}"
-            sign = "+" if diff > 0 else ""
-            summary = f"{prev_total} → {total} ({sign}{diff} items)"
+            diff_str = _format_signed_diff(diff)
+            summary = f"{prev_total} → {total} ({diff_str} items)"
         else:
-            diff_str = "信息/结构更新"
+            diff_str = total_diff_str if (total_diff_str and total_diff_str != "0") else "信息/结构更新"
 
         fields = [
-            ["Status", f"Exit 0 · Changed & Pushed"],
-            ["Algolia Breakdown", f"Men: hits={men_hits} -> matched={men}\nWomen: hits={women_hits} -> matched={women}"],
+            ["Status", "Exit 0 · Changed & Pushed"],
+            ["Algolia Breakdown", breakdown],
             ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({diff_str})"],
         ]
         if m_push:
             fields.append(["Webhook Status", f"HTTP {m_push.group(1)} · {m_push.group(2).strip()}"])
+        men_push_paren = f"（{men_diff_str}）" if men_diff_str is not None else ""
+        women_push_paren = f"（{women_diff_str}）" if women_diff_str is not None else ""
         push_preview = (
             f"### End70 产品数量变化通知\n"
             f"时间：{end_time.replace('-', '/')}\n"
-            f"Men：{men}\n"
-            f"Women：{women}\n"
+            f"Men：{men}{men_push_paren}\n"
+            f"Women：{women}{women_push_paren}\n"
             f"总计：{total}（{diff_str}）"
         )
         return {
@@ -218,6 +251,7 @@ def _parse_end70_block(block, run_id):
             "fields": fields,
             "push_preview": push_preview,
             "raw": raw,
+            "_counts": (total, men, women),
         }
 
     return {
@@ -231,11 +265,12 @@ def _parse_end70_block(block, run_id):
         "dur_val": dur_val,
         "fields": [
             ["Status", "Exit 0 · Unchanged (Skipped file write & alert)"],
-            ["Algolia Breakdown", f"Men: hits={men_hits} -> matched={men}\nWomen: hits={women_hits} -> matched={women}"],
+            ["Algolia Breakdown", breakdown],
             ["Total", f"{total} items · Duration: {dur_str}"],
         ],
         "push_preview": None,
         "raw": raw,
+        "_counts": (total, men, women),
     }
 
 
@@ -467,21 +502,38 @@ def parse_log_runs(project_key, log_text, max_runs=25):
         return [], "--"
 
     recent_blocks = blocks[-max_runs:]
+    # 若存在更早的运行块，提取最后一次完整运行的计数作为首条基线
+    prev_end70_counts = None
+    if project_key == "end70" and len(blocks) > max_runs:
+        for older_block in reversed(blocks[:-max_runs]):
+            m_old = re.search(
+                r"Complete: total=(\d+) \(men=(\d+), women=(\d+)\)",
+                "\n".join(older_block["lines"]),
+            )
+            if m_old:
+                prev_end70_counts = (int(m_old.group(1)), int(m_old.group(2)), int(m_old.group(3)))
+                break
+
     parser_map = {
-        "end70": _parse_end70_block,
         "end": _parse_end_block,
         "thelasthunt": _parse_tlh_block,
     }
-    parser = parser_map.get(project_key, _parse_end70_block)
 
-    runs = []
-    durations = []
-    for idx, block in enumerate(reversed(recent_blocks)):
-        run_id = f"{project_key}-{block['start_time'].replace(' ', '_').replace(':', '')}-{idx}"
-        item = parser(block, run_id)
-        if item.get("dur_val") is not None:
-            durations.append(item["dur_val"])
-        runs.append(item)
+    parsed_items = []
+    total_recent = len(recent_blocks)
+    for forward_idx, block in enumerate(recent_blocks):
+        rev_idx = total_recent - 1 - forward_idx
+        run_id = f"{project_key}-{block['start_time'].replace(' ', '_').replace(':', '')}-{rev_idx}"
+        if project_key == "end70":
+            item = _parse_end70_block(block, run_id, prev_counts=prev_end70_counts)
+            if "_counts" in item:
+                prev_end70_counts = item.pop("_counts")
+        else:
+            item = parser_map.get(project_key, _parse_end_block)(block, run_id)
+        parsed_items.append(item)
+
+    runs = list(reversed(parsed_items))
+    durations = [r["dur_val"] for r in runs if r.get("dur_val") is not None]
 
     avg_dur = f"{(sum(durations) / len(durations)):.2f}s" if durations else "--"
     return runs, avg_dur

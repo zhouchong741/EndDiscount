@@ -38,12 +38,35 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
         # 倒序：最新在第一条
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "848 → 847 (-1 items)")
+        self.assertIn("Men: hits=479 -> matched=478 (0)", runs[0]["fields"][1][1])
+        self.assertIn("Women: hits=370 -> matched=369 (-1)", runs[0]["fields"][1][1])
+        self.assertIn("Men：478（0）", runs[0]["push_preview"])
+        self.assertIn("Women：369（-1）", runs[0]["push_preview"])
         self.assertIn("总计：847（-1）", runs[0]["push_preview"])
         self.assertEqual(runs[1]["status"], "ok")
         self.assertEqual(runs[1]["summary"], "848 items (478M / 370W)")
         self.assertEqual(runs[2]["status"], "err")
         self.assertIn("UnboundLocalError", runs[2]["summary"])
         self.assertNotEqual(avg, "--")
+
+    def test_parse_end70_compact_log_format(self):
+        sample = """==================== [2026-11-13 09:50:01] Scrape Started ====================
+[men] hits=479 (1p) -> matched=478
+[women] hits=370 (1p) -> matched=369
+变化: Men 479 -> 478 (-1) | Women 369 -> 369 (0) | Total 848 -> 847 (-1)
+DingTalk notification sent: status=200, response={"errcode":0,"errmsg":"ok"}
+Complete: total=847 (men=478, women=369) changed=True elapsed=1.95s
+==================== [2026-11-13 09:50:03] Finished (Exit: 0) ===================="""
+
+        runs, _ = web_log.parse_log_runs("end70", sample)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["status"], "push")
+        self.assertEqual(runs[0]["summary"], "848 → 847 (-1 items)")
+        self.assertIn("Men: hits=479 -> matched=478 (-1)", runs[0]["fields"][1][1])
+        self.assertIn("Women: hits=370 -> matched=369 (0)", runs[0]["fields"][1][1])
+        self.assertIn("Men：478（-1）", runs[0]["push_preview"])
+        self.assertIn("Women：369（0）", runs[0]["push_preview"])
+        self.assertIn("总计：847（-1）", runs[0]["push_preview"])
 
     def test_parse_end_monitor_runs(self):
         sample = """==================== [2026-11-13 09:00:01] Crawler End Started ====================

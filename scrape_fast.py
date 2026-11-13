@@ -176,7 +176,6 @@ def scrape_all(session=None):
             nb_hits = first_page.get("nbHits", 0)
             nb_pages = first_page.get("nbPages", 0)
             hits = list(first_page.get("hits", []))
-            print(f"[{pt}] Algolia pre-filtered hits={nb_hits} pages={nb_pages}", flush=True)
 
             # 如超过 1000 条则继续拉取剩余分页
             for page_num in range(2, nb_pages + 1):
@@ -192,7 +191,7 @@ def scrape_all(session=None):
                 if product:
                     products_dict[(pt, product["url"])] = product
 
-            print(f"[{pt}] matched target discounts (60%/65%/70% off): {len(products_dict)}", flush=True)
+            print(f"[{pt}] hits={nb_hits} ({nb_pages}p) -> matched={len(products_dict)}", flush=True)
             results_by_type[pt] = products_dict
 
         return results_by_type
@@ -277,7 +276,6 @@ def main():
             pt: {k: v for k, v in existing.items() if v.get("type", "men") == pt}
             for pt in COLLECTIONS
         }
-        print(f"Loaded {initial_count} existing products.", flush=True)
 
         results_by_type = scrape_all()
         all_products = {}
@@ -286,6 +284,15 @@ def main():
 
         final_count = len(all_products)
         final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}
+        total_desc = format_change_desc(existing, all_products)
+        men_desc = format_change_desc(existing_by_type["men"], results_by_type["men"])
+        women_desc = format_change_desc(existing_by_type["women"], results_by_type["women"])
+        print(
+            f"变化: Men {len(existing_by_type['men'])} -> {final_counts['men']} ({men_desc}) | "
+            f"Women {len(existing_by_type['women'])} -> {final_counts['women']} ({women_desc}) | "
+            f"Total {initial_count} -> {final_count} ({total_desc})",
+            flush=True,
+        )
 
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:
@@ -294,25 +301,25 @@ def main():
             if os.getenv("GITHUB_ACTIONS") != "true":
                 send_dingtalk_notification(
                     final_count,
-                    format_change_desc(existing, all_products),
+                    total_desc,
                     final_counts["men"],
-                    format_change_desc(existing_by_type["men"], results_by_type["men"]),
+                    men_desc,
                     final_counts["women"],
-                    format_change_desc(existing_by_type["women"], results_by_type["women"]),
+                    women_desc,
                 )
         else:
-            print("No product changes detected; skipping file write and notification.", flush=True)
+            print("No change; skipped alert.", flush=True)
 
         env_file = os.getenv("GITHUB_ENV")
         if env_file:
             with open(env_file, "a", encoding="utf-8") as f:
                 f.write(f"DATA_CHANGED={'true' if has_changed else 'false'}\n")
                 f.write(f"PRODUCT_COUNT={final_count}\n")
-                f.write(f"PRODUCT_CHANGE_DESC={format_change_desc(existing, all_products)}\n")
+                f.write(f"PRODUCT_CHANGE_DESC={total_desc}\n")
                 f.write(f"MEN_PRODUCT_COUNT={final_counts['men']}\n")
-                f.write(f"MEN_CHANGE_DESC={format_change_desc(existing_by_type['men'], results_by_type['men'])}\n")
+                f.write(f"MEN_CHANGE_DESC={men_desc}\n")
                 f.write(f"WOMEN_PRODUCT_COUNT={final_counts['women']}\n")
-                f.write(f"WOMEN_CHANGE_DESC={format_change_desc(existing_by_type['women'], results_by_type['women'])}\n")
+                f.write(f"WOMEN_CHANGE_DESC={women_desc}\n")
 
         elapsed = time.perf_counter() - started
         print(

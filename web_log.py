@@ -132,24 +132,18 @@ def _format_signed_diff(diff):
     return "0"
 
 
-def _extract_algolia_hits(raw, category, fallback):
-    """兼容提取旧版与新版日志中各分类 Algolia 预筛选 hits 数。"""
-    patterns = (
-        rf"\[{category}\] matched=\d+ \(hits=(\d+),",
-        rf"\[{category}\] hits=(\d+) \(\d+p\) -> matched=",
-        rf"\[{category}\] Algolia pre-filtered hits=(\d+)",
-    )
-    for pat in patterns:
-        m = re.search(pat, raw)
-        if m:
-            return m.group(1)
-    return str(fallback)
-
-
-def _format_category_line(label, prev_val, curr_val, diff_str, hits):
+def _format_category_line(label, prev_val, curr_val, diff_str):
     if prev_val is not None and diff_str is not None:
-        return f"{label}: {prev_val} -> {curr_val} ({diff_str})  [hits: {hits}]"
-    return f"{label}: {curr_val}  [hits: {hits}]"
+        return f"{label}: {prev_val} -> {curr_val} ({diff_str})"
+    return f"{label}: {curr_val}"
+
+
+def _format_preview_line(prev_val, curr_val, diff_str):
+    if prev_val is not None and diff_str is not None:
+        return f"{prev_val} -> {curr_val} ({diff_str})"
+    if diff_str is not None:
+        return f"{curr_val}（{diff_str}）"
+    return str(curr_val)
 
 
 def _parse_end70_block(block, run_id, prev_counts=None):
@@ -158,6 +152,9 @@ def _parse_end70_block(block, run_id, prev_counts=None):
     end_time = block["end_time"] or start_time
     exit_code = block["exit_code"]
 
+    m_men_line = re.search(r"(?m)^Men:\s*(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)", raw)
+    m_women_line = re.search(r"(?m)^Women:\s*(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)", raw)
+    m_total_line = re.search(r"(?m)^Total:\s*(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)", raw)
     m_chg_line = re.search(
         r"变化:\s*Men\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)\s*\|\s*Women\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)\s*\|\s*Total\s+(\d+)\s*->\s*(\d+)\s*\(([^)]+)\)",
         raw,
@@ -167,7 +164,15 @@ def _parse_end70_block(block, run_id, prev_counts=None):
     m_push = re.search(r"DingTalk notification sent: status=(\d+), response=(.+)", raw)
     m_fail = re.search(r"Scrape failed:\s*(.+)", raw)
 
-    prev_total = int(m_chg_line.group(7)) if m_chg_line else (int(m_prev.group(1)) if m_prev else None)
+    if m_total_line:
+        prev_total = int(m_total_line.group(1))
+    elif m_chg_line:
+        prev_total = int(m_chg_line.group(7))
+    elif m_prev:
+        prev_total = int(m_prev.group(1))
+    else:
+        prev_total = None
+
     dur_val = float(m_comp.group(5)) if m_comp else _calc_duration_sec(start_time, block["end_time"])
     dur_str = f"{dur_val:.2f}s" if dur_val is not None else "--"
 
@@ -208,28 +213,33 @@ def _parse_end70_block(block, run_id, prev_counts=None):
 
     total, men, women = int(m_comp.group(1)), int(m_comp.group(2)), int(m_comp.group(3))
     changed = m_comp.group(4) == "True"
-    men_hits = _extract_algolia_hits(raw, "men", men)
-    women_hits = _extract_algolia_hits(raw, "women", women)
 
-    if m_chg_line:
+    if m_men_line and m_women_line and m_total_line:
+        prev_men = int(m_men_line.group(1))
+        prev_women = int(m_women_line.group(1))
+        men_diff_str = m_men_line.group(3).strip()
+        women_diff_str = m_women_line.group(3).strip()
+        total_diff_str = m_total_line.group(3).strip()
+    elif m_chg_line:
         prev_men = int(m_chg_line.group(1))
         prev_women = int(m_chg_line.group(4))
         men_diff_str = m_chg_line.group(3).strip()
         women_diff_str = m_chg_line.group(6).strip()
         total_diff_str = m_chg_line.group(9).strip()
     elif prev_counts and (prev_total is None or prev_total == prev_counts[0]):
+        prev_total = prev_counts[0]
         prev_men, prev_women = prev_counts[1], prev_counts[2]
         men_diff_str = _format_signed_diff(men - prev_men)
         women_diff_str = _format_signed_diff(women - prev_women)
-        total_diff_str = _format_signed_diff(total - prev_counts[0])
+        total_diff_str = _format_signed_diff(total - prev_total)
     else:
         prev_men = prev_women = None
         men_diff_str = women_diff_str = None
         total_diff_str = _format_signed_diff(total - prev_total) if prev_total is not None else "0"
 
     breakdown = "\n".join([
-        _format_category_line("Men", prev_men, men, men_diff_str, men_hits),
-        _format_category_line("Women", prev_women, women, women_diff_str, women_hits),
+        _format_category_line("Men", prev_men, men, men_diff_str),
+        _format_category_line("Women", prev_women, women, women_diff_str),
     ])
 
     if changed or m_push:
@@ -243,19 +253,17 @@ def _parse_end70_block(block, run_id, prev_counts=None):
 
         fields = [
             ["Status", "Exit 0 · Changed & Pushed"],
-            ["Algolia Breakdown", breakdown],
+            ["Category Breakdown", breakdown],
             ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({diff_str})"],
         ]
         if m_push:
             fields.append(["Webhook Status", f"HTTP {m_push.group(1)} · {m_push.group(2).strip()}"])
-        men_push_paren = f"（{men_diff_str}）" if men_diff_str is not None else ""
-        women_push_paren = f"（{women_diff_str}）" if women_diff_str is not None else ""
         push_preview = (
             f"### End70 产品数量变化通知\n"
             f"时间：{end_time.replace('-', '/')}\n"
-            f"Men：{men}{men_push_paren}\n"
-            f"Women：{women}{women_push_paren}\n"
-            f"总计：{total}（{diff_str}）"
+            f"Men：{_format_preview_line(prev_men, men, men_diff_str)}\n"
+            f"Women：{_format_preview_line(prev_women, women, women_diff_str)}\n"
+            f"总计：{_format_preview_line(prev_total, total, diff_str)}"
         )
         return {
             "id": run_id,
@@ -283,7 +291,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
         "dur_val": dur_val,
         "fields": [
             ["Status", "Exit 0 · Unchanged (Skipped file write & alert)"],
-            ["Algolia Breakdown", breakdown],
+            ["Category Breakdown", breakdown],
             ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({total_diff_str}) · Duration: {dur_str}"],
         ],
         "push_preview": None,

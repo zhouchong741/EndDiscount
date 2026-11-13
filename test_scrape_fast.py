@@ -80,6 +80,9 @@ class FastScraperTests(unittest.TestCase):
                 women_count=40,
                 women_desc="+2",
                 webhook="https://example.com/fake_webhook",
+                prev_total=95,
+                prev_men=57,
+                prev_women=38,
             )
             self.assertTrue(ok)
             mock_post.assert_called_once()
@@ -87,8 +90,9 @@ class FastScraperTests(unittest.TestCase):
             payload = call_kwargs["json"]
             self.assertEqual(payload["msgtype"], "markdown")
             self.assertIn("### End70 产品数量变化通知", payload["markdown"]["text"])
-            self.assertIn("> **Men**：60（+3）  \n", payload["markdown"]["text"])
-            self.assertIn("+5", payload["markdown"]["text"])
+            self.assertIn("> **Men**：57 -> 60 (+3)  \n", payload["markdown"]["text"])
+            self.assertIn("> **Women**：38 -> 40 (+2)  \n", payload["markdown"]["text"])
+            self.assertIn("> **总计**：95 -> 100 (+5)  \n", payload["markdown"]["text"])
 
 
 if __name__ == "__main__":

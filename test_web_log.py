@@ -38,11 +38,10 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
         # 倒序：最新在第一条
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "848 → 847 (-1 items)")
-        self.assertIn("Men: 478 -> 478 (0)  [hits: 479]", runs[0]["fields"][1][1])
-        self.assertIn("Women: 370 -> 369 (-1)  [hits: 370]", runs[0]["fields"][1][1])
-        self.assertIn("Men：478（0）", runs[0]["push_preview"])
-        self.assertIn("Women：369（-1）", runs[0]["push_preview"])
-        self.assertIn("总计：847（-1）", runs[0]["push_preview"])
+        self.assertEqual(runs[0]["fields"][1][1], "Men: 478 -> 478 (0)\nWomen: 370 -> 369 (-1)")
+        self.assertIn("Men：478 -> 478 (0)", runs[0]["push_preview"])
+        self.assertIn("Women：370 -> 369 (-1)", runs[0]["push_preview"])
+        self.assertIn("总计：848 -> 847 (-1)", runs[0]["push_preview"])
         self.assertEqual(runs[1]["status"], "ok")
         self.assertEqual(runs[1]["summary"], "848 items (478M / 370W)")
         self.assertIn("Total: 848 -> 848 (0)", runs[1]["fields"][2][1])
@@ -52,9 +51,9 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
 
     def test_parse_end70_compact_log_format(self):
         sample = """==================== [2026-11-13 09:50:01] Scrape Started ====================
-[men] matched=478 (hits=479, 1p)
-[women] matched=371 (hits=371, 1p)
-变化: Men 479 -> 478 (-1) | Women 369 -> 371 (+2) | Total 848 -> 849 (+1)
+Men: 479 -> 478 (-1)
+Women: 369 -> 371 (+2)
+Total: 848 -> 849 (+1)
 DingTalk notification sent: status=200, response={"errcode":0,"errmsg":"ok"}
 Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
 ==================== [2026-11-13 09:50:03] Finished (Exit: 0) ===================="""
@@ -63,11 +62,11 @@ Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "848 → 849 (+1 items)")
-        self.assertIn("Men: 479 -> 478 (-1)  [hits: 479]", runs[0]["fields"][1][1])
-        self.assertIn("Women: 369 -> 371 (+2)  [hits: 371]", runs[0]["fields"][1][1])
-        self.assertIn("Men：478（-1）", runs[0]["push_preview"])
-        self.assertIn("Women：371（+2）", runs[0]["push_preview"])
-        self.assertIn("总计：849（+1）", runs[0]["push_preview"])
+        self.assertEqual(runs[0]["fields"][1][1], "Men: 479 -> 478 (-1)\nWomen: 369 -> 371 (+2)")
+        self.assertNotIn("hits", runs[0]["fields"][1][1])
+        self.assertIn("Men：479 -> 478 (-1)", runs[0]["push_preview"])
+        self.assertIn("Women：369 -> 371 (+2)", runs[0]["push_preview"])
+        self.assertIn("总计：848 -> 849 (+1)", runs[0]["push_preview"])
 
     def test_parse_end_monitor_runs(self):
         sample = """==================== [2026-11-13 09:00:01] Crawler End Started ====================

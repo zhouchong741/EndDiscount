@@ -191,7 +191,6 @@ def scrape_all(session=None):
                 if product:
                     products_dict[(pt, product["url"])] = product
 
-            print(f"[{pt}] matched={len(products_dict)} (hits={nb_hits}, {nb_pages}p)", flush=True)
             results_by_type[pt] = products_dict
 
         return results_by_type
@@ -235,7 +234,24 @@ def format_change_desc(old_items, new_items):
     return "0"
 
 
-def send_dingtalk_notification(total_count, total_desc, men_count, men_desc, women_count, women_desc, webhook=None):
+def _format_count_line(prev_count, curr_count, desc):
+    if prev_count is not None:
+        return f"{prev_count} -> {curr_count} ({desc})"
+    return f"{curr_count}（{desc}）"
+
+
+def send_dingtalk_notification(
+    total_count,
+    total_desc,
+    men_count,
+    men_desc,
+    women_count,
+    women_desc,
+    webhook=None,
+    prev_total=None,
+    prev_men=None,
+    prev_women=None,
+):
     """当数据变化且不在 GitHub Actions 环境中时直接调用钉钉 Webhook 推送通知。"""
     webhook_url = webhook or DINGTALK_WEBHOOK
     if not webhook_url:
@@ -246,9 +262,9 @@ def send_dingtalk_notification(total_count, total_desc, men_count, men_desc, wom
     text = (
         f"### End70 产品数量变化通知\n"
         f"> **时间**：{now_str}  \n"
-        f"> **Men**：{men_count}（{men_desc}）  \n"
-        f"> **Women**：{women_count}（{women_desc}）  \n"
-        f"> **总计**：{total_count}（{total_desc}）  \n"
+        f"> **Men**：{_format_count_line(prev_men, men_count, men_desc)}  \n"
+        f"> **Women**：{_format_count_line(prev_women, women_count, women_desc)}  \n"
+        f"> **总计**：{_format_count_line(prev_total, total_count, total_desc)}  \n"
         f"> [点击查看](https://discount.19930216.xyz)"
     )
     payload = {
@@ -284,15 +300,14 @@ def main():
 
         final_count = len(all_products)
         final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}
+        prev_men = len(existing_by_type["men"])
+        prev_women = len(existing_by_type["women"])
         total_desc = format_change_desc(existing, all_products)
         men_desc = format_change_desc(existing_by_type["men"], results_by_type["men"])
         women_desc = format_change_desc(existing_by_type["women"], results_by_type["women"])
-        print(
-            f"变化: Men {len(existing_by_type['men'])} -> {final_counts['men']} ({men_desc}) | "
-            f"Women {len(existing_by_type['women'])} -> {final_counts['women']} ({women_desc}) | "
-            f"Total {initial_count} -> {final_count} ({total_desc})",
-            flush=True,
-        )
+        print(f"Men: {prev_men} -> {final_counts['men']} ({men_desc})", flush=True)
+        print(f"Women: {prev_women} -> {final_counts['women']} ({women_desc})", flush=True)
+        print(f"Total: {initial_count} -> {final_count} ({total_desc})", flush=True)
 
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:
@@ -306,6 +321,9 @@ def main():
                     men_desc,
                     final_counts["women"],
                     women_desc,
+                    prev_total=initial_count,
+                    prev_men=prev_men,
+                    prev_women=prev_women,
                 )
         else:
             print("No change; skipped alert.", flush=True)

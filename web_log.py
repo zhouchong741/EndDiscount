@@ -132,6 +132,26 @@ def _format_signed_diff(diff):
     return "0"
 
 
+def _extract_algolia_hits(raw, category, fallback):
+    """兼容提取旧版与新版日志中各分类 Algolia 预筛选 hits 数。"""
+    patterns = (
+        rf"\[{category}\] matched=\d+ \(hits=(\d+),",
+        rf"\[{category}\] hits=(\d+) \(\d+p\) -> matched=",
+        rf"\[{category}\] Algolia pre-filtered hits=(\d+)",
+    )
+    for pat in patterns:
+        m = re.search(pat, raw)
+        if m:
+            return m.group(1)
+    return str(fallback)
+
+
+def _format_category_line(label, prev_val, curr_val, diff_str, hits):
+    if prev_val is not None and diff_str is not None:
+        return f"{label}: {prev_val} -> {curr_val} ({diff_str})  [hits: {hits}]"
+    return f"{label}: {curr_val}  [hits: {hits}]"
+
+
 def _parse_end70_block(block, run_id, prev_counts=None):
     raw = "\n".join(block["lines"])
     start_time = block["start_time"]
@@ -143,12 +163,6 @@ def _parse_end70_block(block, run_id, prev_counts=None):
         raw,
     )
     m_prev = re.search(r"Loaded (\d+) existing products", raw)
-    m_men_hits = re.search(r"\[men\] hits=(\d+) \(\d+p\) -> matched=", raw) or re.search(
-        r"\[men\] Algolia pre-filtered hits=(\d+)", raw
-    )
-    m_women_hits = re.search(r"\[women\] hits=(\d+) \(\d+p\) -> matched=", raw) or re.search(
-        r"\[women\] Algolia pre-filtered hits=(\d+)", raw
-    )
     m_comp = re.search(r"Complete: total=(\d+) \(men=(\d+), women=(\d+)\) changed=(True|False) elapsed=([\d.]+)s", raw)
     m_push = re.search(r"DingTalk notification sent: status=(\d+), response=(.+)", raw)
     m_fail = re.search(r"Scrape failed:\s*(.+)", raw)
@@ -194,25 +208,29 @@ def _parse_end70_block(block, run_id, prev_counts=None):
 
     total, men, women = int(m_comp.group(1)), int(m_comp.group(2)), int(m_comp.group(3))
     changed = m_comp.group(4) == "True"
-    men_hits = m_men_hits.group(1) if m_men_hits else str(men)
-    women_hits = m_women_hits.group(1) if m_women_hits else str(women)
+    men_hits = _extract_algolia_hits(raw, "men", men)
+    women_hits = _extract_algolia_hits(raw, "women", women)
 
     if m_chg_line:
+        prev_men = int(m_chg_line.group(1))
+        prev_women = int(m_chg_line.group(4))
         men_diff_str = m_chg_line.group(3).strip()
         women_diff_str = m_chg_line.group(6).strip()
         total_diff_str = m_chg_line.group(9).strip()
     elif prev_counts and (prev_total is None or prev_total == prev_counts[0]):
-        men_diff_str = _format_signed_diff(men - prev_counts[1])
-        women_diff_str = _format_signed_diff(women - prev_counts[2])
+        prev_men, prev_women = prev_counts[1], prev_counts[2]
+        men_diff_str = _format_signed_diff(men - prev_men)
+        women_diff_str = _format_signed_diff(women - prev_women)
         total_diff_str = _format_signed_diff(total - prev_counts[0])
     else:
-        men_diff_str = None
-        women_diff_str = None
+        prev_men = prev_women = None
+        men_diff_str = women_diff_str = None
         total_diff_str = _format_signed_diff(total - prev_total) if prev_total is not None else "0"
 
-    men_suffix = f" ({men_diff_str})" if men_diff_str is not None else ""
-    women_suffix = f" ({women_diff_str})" if women_diff_str is not None else ""
-    breakdown = f"Men: hits={men_hits} -> matched={men}{men_suffix}\nWomen: hits={women_hits} -> matched={women}{women_suffix}"
+    breakdown = "\n".join([
+        _format_category_line("Men", prev_men, men, men_diff_str, men_hits),
+        _format_category_line("Women", prev_women, women, women_diff_str, women_hits),
+    ])
 
     if changed or m_push:
         summary = f"{total} items ({men}M / {women}W)"
@@ -266,7 +284,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
         "fields": [
             ["Status", "Exit 0 · Unchanged (Skipped file write & alert)"],
             ["Algolia Breakdown", breakdown],
-            ["Total", f"{total} items · Duration: {dur_str}"],
+            ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({total_diff_str}) · Duration: {dur_str}"],
         ],
         "push_preview": None,
         "raw": raw,

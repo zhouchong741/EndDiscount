@@ -191,7 +191,7 @@ def scrape_all(session=None):
                 if product:
                     products_dict[(pt, product["url"])] = product
 
-            print(f"[{pt}] hits={nb_hits} ({nb_pages}p) -> matched={len(products_dict)}", flush=True)
+            print(f"[{pt}] matched={len(products_dict)} (hits={nb_hits}, {nb_pages}p)", flush=True)
             results_by_type[pt] = products_dict
 
         return results_by_type

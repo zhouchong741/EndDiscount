@@ -1047,6 +1047,7 @@ HTML_PAGE = """<!DOCTYPE html>
     let currentProject = 'end70';
     let currentFilter = 'all';
     let latestPayload = null;
+    let lastRunsSignature = '';
     let logPollTimer = null;
     const expandedRunIds = new Set();
     const runModeMap = {};
@@ -1224,7 +1225,7 @@ HTML_PAGE = """<!DOCTYPE html>
       }).join('');
     }
 
-    async function fetchLogStatus() {
+    async function fetchLogStatus(forceRender = false) {
       try {
         const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
         const res = await fetch(base + `api/status?project=${currentProject}`);
@@ -1234,7 +1235,16 @@ HTML_PAGE = """<!DOCTYPE html>
         if (data.server_ts_ms) {
           window.__serverTimeOffsetMs = data.server_ts_ms - Date.now();
         }
-        renderRuns(data);
+        const sig = JSON.stringify({
+          project: data.project,
+          filter: currentFilter,
+          counts: data.project_counts,
+          runs: (data.runs || []).map(r => [r.id, r.tag, r.dur])
+        });
+        if (forceRender || sig !== lastRunsSignature) {
+          lastRunsSignature = sig;
+          renderRuns(data);
+        }
       } catch (err) {
         document.getElementById('runs-list').innerHTML = `<div class="px-4 py-6 text-center text-xs text-rose-500">Failed to load logs: ${escapeHtml(err.message || err)}</div>`;
       }

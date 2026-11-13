@@ -92,7 +92,8 @@ class FastScraperTests(unittest.TestCase):
             card = payload["card"]
             self.assertEqual(card["schema"], "2.0")
             self.assertEqual(card["header"]["title"]["content"], "End70 产品数量变化通知")
-            self.assertEqual(card["header"]["template"], "green")
+            self.assertEqual(card["header"]["template"], "blue")
+            self.assertEqual(card["header"]["text_tag_list"][0]["color"], "blue")
             md = card["body"]["elements"][0]["content"]
             self.assertIn("**Men**：57 -> 60 <font color='green'>(+3)</font>", md)
             self.assertIn("**Women**：38 -> 40 <font color='green'>(+2)</font>", md)

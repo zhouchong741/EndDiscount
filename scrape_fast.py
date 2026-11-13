@@ -267,13 +267,7 @@ def build_feishu_card(
     prev_women=None,
 ):
     """构造飞书 Card JSON 2.0 极简竖向卡片（只调整 UI 样式，不改动推送字段内容）。"""
-    total_diff = (total_count - prev_total) if prev_total is not None else 0
-    if total_diff > 0:
-        header_tpl, tag_color = "green", "green"
-    elif total_diff < 0:
-        header_tpl, tag_color = "orange", "orange"
-    else:
-        header_tpl, tag_color = "blue", "blue"
+    header_tpl, tag_color = "blue", "blue"
 
     md_content = "\n".join([
         f"**时间**：{now_str}",

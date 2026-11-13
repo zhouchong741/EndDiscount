@@ -758,6 +758,55 @@ HTML_PAGE = """<!DOCTYPE html>
       --card-shadow-light: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
       --card-shadow-dark: 0 8px 28px -4px rgba(0, 0, 0, 0.5);
 
+      --drawer-bg-light: #f8fafc;
+      --drawer-bg-dark: #090d16;
+      --drawer-header-bg-light: #f1f5f9;
+      --drawer-header-bg-dark: rgba(24, 24, 27, 0.9);
+      --drawer-panel-bg-light: #ffffff;
+      --drawer-panel-bg-dark: rgba(24, 24, 27, 0.5);
+      --drawer-code-bg-light: #f1f5f9;
+      --drawer-code-bg-dark: rgba(24, 24, 27, 0.9);
+      --drawer-border-light: #e2e8f0;
+      --drawer-border-dark: rgba(39, 39, 42, 0.9);
+      --drawer-btn-bg-light: #ffffff;
+      --drawer-btn-bg-dark: #27272a;
+      --drawer-btn-hover-light: #e2e8f0;
+      --drawer-btn-hover-dark: #3f3f46;
+      --drawer-btn-text-light: #334155;
+      --drawer-btn-text-dark: #e4e4e7;
+      --drawer-text-main-light: #0f172a;
+      --drawer-text-main-dark: #f4f4f5;
+      --drawer-text-sub-light: #475569;
+      --drawer-text-sub-dark: #a1a1aa;
+      --drawer-text-muted-light: #64748b;
+      --drawer-text-muted-dark: #71717a;
+
+      --status-ok-text-light: #059669;
+      --status-ok-text-dark: #34d399;
+      --status-push-bg-light: rgba(2, 132, 199, 0.1);
+      --status-push-bg-dark: rgba(56, 189, 248, 0.15);
+      --status-push-text-light: #0369a1;
+      --status-push-text-dark: #38bdf8;
+      --status-push-border-light: rgba(2, 132, 199, 0.24);
+      --status-push-border-dark: rgba(56, 189, 248, 0.25);
+      --status-err-bg-light: rgba(225, 29, 72, 0.1);
+      --status-err-bg-dark: rgba(251, 113, 133, 0.15);
+      --status-err-text-light: #be123c;
+      --status-err-text-dark: #fb7185;
+      --status-err-border-light: rgba(225, 29, 72, 0.24);
+      --status-err-border-dark: rgba(251, 113, 133, 0.25);
+
+      --page-active-bg-light: rgba(14, 165, 233, 0.12);
+      --page-active-bg-dark: rgba(56, 189, 248, 0.16);
+      --page-active-text-light: #0284c7;
+      --page-active-text-dark: #38bdf8;
+      --page-active-border-light: rgba(2, 132, 199, 0.42);
+      --page-active-border-dark: rgba(56, 189, 248, 0.45);
+      --scrollbar-thumb-light: rgba(100, 116, 139, 0.28);
+      --scrollbar-thumb-dark: rgba(148, 163, 184, 0.32);
+      --scrollbar-thumb-hover-light: rgba(2, 132, 199, 0.58);
+      --scrollbar-thumb-hover-dark: rgba(56, 189, 248, 0.65);
+
       --bg-canvas: var(--bg-canvas-light);
       --bg-surface: var(--bg-surface-light);
       --bg-elevated: var(--bg-elevated-light);
@@ -773,6 +822,32 @@ HTML_PAGE = """<!DOCTYPE html>
       --accent-emerald: var(--accent-emerald-light);
       --accent-price: var(--accent-price-light);
       --card-shadow: var(--card-shadow-light);
+
+      --drawer-bg: var(--drawer-bg-light);
+      --drawer-header-bg: var(--drawer-header-bg-light);
+      --drawer-panel-bg: var(--drawer-panel-bg-light);
+      --drawer-code-bg: var(--drawer-code-bg-light);
+      --drawer-border: var(--drawer-border-light);
+      --drawer-btn-bg: var(--drawer-btn-bg-light);
+      --drawer-btn-hover: var(--drawer-btn-hover-light);
+      --drawer-btn-text: var(--drawer-btn-text-light);
+      --drawer-text-main: var(--drawer-text-main-light);
+      --drawer-text-sub: var(--drawer-text-sub-light);
+      --drawer-text-muted: var(--drawer-text-muted-light);
+
+      --status-ok-text: var(--status-ok-text-light);
+      --status-push-bg: var(--status-push-bg-light);
+      --status-push-text: var(--status-push-text-light);
+      --status-push-border: var(--status-push-border-light);
+      --status-err-bg: var(--status-err-bg-light);
+      --status-err-text: var(--status-err-text-light);
+      --status-err-border: var(--status-err-border-light);
+
+      --page-active-bg: var(--page-active-bg-light);
+      --page-active-text: var(--page-active-text-light);
+      --page-active-border: var(--page-active-border-light);
+      --scrollbar-thumb: var(--scrollbar-thumb-light);
+      --scrollbar-thumb-hover: var(--scrollbar-thumb-hover-light);
 
       @media (prefers-color-scheme: dark) {
         --bg-canvas: var(--bg-canvas-dark);
@@ -790,6 +865,32 @@ HTML_PAGE = """<!DOCTYPE html>
         --accent-emerald: var(--accent-emerald-dark);
         --accent-price: var(--accent-price-dark);
         --card-shadow: var(--card-shadow-dark);
+
+        --drawer-bg: var(--drawer-bg-dark);
+        --drawer-header-bg: var(--drawer-header-bg-dark);
+        --drawer-panel-bg: var(--drawer-panel-bg-dark);
+        --drawer-code-bg: var(--drawer-code-bg-dark);
+        --drawer-border: var(--drawer-border-dark);
+        --drawer-btn-bg: var(--drawer-btn-bg-dark);
+        --drawer-btn-hover: var(--drawer-btn-hover-dark);
+        --drawer-btn-text: var(--drawer-btn-text-dark);
+        --drawer-text-main: var(--drawer-text-main-dark);
+        --drawer-text-sub: var(--drawer-text-sub-dark);
+        --drawer-text-muted: var(--drawer-text-muted-dark);
+
+        --status-ok-text: var(--status-ok-text-dark);
+        --status-push-bg: var(--status-push-bg-dark);
+        --status-push-text: var(--status-push-text-dark);
+        --status-push-border: var(--status-push-border-dark);
+        --status-err-bg: var(--status-err-bg-dark);
+        --status-err-text: var(--status-err-text-dark);
+        --status-err-border: var(--status-err-border-dark);
+
+        --page-active-bg: var(--page-active-bg-dark);
+        --page-active-text: var(--page-active-text-dark);
+        --page-active-border: var(--page-active-border-dark);
+        --scrollbar-thumb: var(--scrollbar-thumb-dark);
+        --scrollbar-thumb-hover: var(--scrollbar-thumb-hover-dark);
       }
 
       @supports (color: light-dark(white, black)) {
@@ -808,6 +909,32 @@ HTML_PAGE = """<!DOCTYPE html>
         --accent-emerald: light-dark(var(--accent-emerald-light), var(--accent-emerald-dark));
         --accent-price: light-dark(var(--accent-price-light), var(--accent-price-dark));
         --card-shadow: light-dark(var(--card-shadow-light), var(--card-shadow-dark));
+
+        --drawer-bg: light-dark(var(--drawer-bg-light), var(--drawer-bg-dark));
+        --drawer-header-bg: light-dark(var(--drawer-header-bg-light), var(--drawer-header-bg-dark));
+        --drawer-panel-bg: light-dark(var(--drawer-panel-bg-light), var(--drawer-panel-bg-dark));
+        --drawer-code-bg: light-dark(var(--drawer-code-bg-light), var(--drawer-code-bg-dark));
+        --drawer-border: light-dark(var(--drawer-border-light), var(--drawer-border-dark));
+        --drawer-btn-bg: light-dark(var(--drawer-btn-bg-light), var(--drawer-btn-bg-dark));
+        --drawer-btn-hover: light-dark(var(--drawer-btn-hover-light), var(--drawer-btn-hover-dark));
+        --drawer-btn-text: light-dark(var(--drawer-btn-text-light), var(--drawer-btn-text-dark));
+        --drawer-text-main: light-dark(var(--drawer-text-main-light), var(--drawer-text-main-dark));
+        --drawer-text-sub: light-dark(var(--drawer-text-sub-light), var(--drawer-text-sub-dark));
+        --drawer-text-muted: light-dark(var(--drawer-text-muted-light), var(--drawer-text-muted-dark));
+
+        --status-ok-text: light-dark(var(--status-ok-text-light), var(--status-ok-text-dark));
+        --status-push-bg: light-dark(var(--status-push-bg-light), var(--status-push-bg-dark));
+        --status-push-text: light-dark(var(--status-push-text-light), var(--status-push-text-dark));
+        --status-push-border: light-dark(var(--status-push-border-light), var(--status-push-border-dark));
+        --status-err-bg: light-dark(var(--status-err-bg-light), var(--status-err-bg-dark));
+        --status-err-text: light-dark(var(--status-err-text-light), var(--status-err-text-dark));
+        --status-err-border: light-dark(var(--status-err-border-light), var(--status-err-border-dark));
+
+        --page-active-bg: light-dark(var(--page-active-bg-light), var(--page-active-bg-dark));
+        --page-active-text: light-dark(var(--page-active-text-light), var(--page-active-text-dark));
+        --page-active-border: light-dark(var(--page-active-border-light), var(--page-active-border-dark));
+        --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+        --scrollbar-thumb-hover: light-dark(var(--scrollbar-thumb-hover-light), var(--scrollbar-thumb-hover-dark));
       }
     }
 
@@ -958,10 +1085,67 @@ HTML_PAGE = """<!DOCTYPE html>
       box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
 
+    .log-ctrl-btn {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+      transition: all 0.15s ease;
+    }
+    .log-ctrl-btn:hover:not(:disabled):not(.active) {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .log-ctrl-btn.active {
+      background: var(--page-active-bg);
+      color: var(--page-active-text);
+      border-color: var(--page-active-border);
+      font-weight: 600;
+    }
+
+    .run-tag-ok {
+      background: var(--bg-pill);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+    .run-tag-push {
+      background: var(--status-push-bg);
+      color: var(--status-push-text);
+      border: 1px solid var(--status-push-border);
+    }
+    .run-tag-err {
+      background: var(--status-err-bg);
+      color: var(--status-err-text);
+      border: 1px solid var(--status-err-border);
+    }
+
     .cli-drawer {
-      background: #090d16;
-      color: #e2e8f0;
-      color-scheme: only dark;
+      background: var(--drawer-bg);
+      color: var(--drawer-text-main);
+    }
+    .cli-drawer-header {
+      background: var(--drawer-header-bg);
+      border-bottom: 1px solid var(--drawer-border);
+      color: var(--drawer-text-sub);
+    }
+    .cli-drawer-btn {
+      background: var(--drawer-btn-bg);
+      color: var(--drawer-btn-text);
+      border: 1px solid var(--drawer-border);
+      transition: background-color 0.15s ease;
+    }
+    .cli-drawer-btn:hover { background: var(--drawer-btn-hover); }
+    .cli-drawer-panel {
+      background: var(--drawer-panel-bg);
+      border: 1px solid var(--drawer-border);
+    }
+    .cli-drawer-field + .cli-drawer-field {
+      border-top: 1px solid var(--drawer-border);
+    }
+    .cli-drawer-code {
+      background: var(--drawer-code-bg);
+      border: 1px solid var(--drawer-border);
+      color: var(--drawer-text-main);
     }
 
     #back-to-top {
@@ -993,27 +1177,21 @@ HTML_PAGE = """<!DOCTYPE html>
       overscroll-behavior: contain;
       scrollbar-gutter: stable;
       scrollbar-width: thin;
-      scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+      scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+    .logs-scroll > div + div {
+      border-top: 1px solid var(--border-subtle);
     }
     .logs-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
     .logs-scroll::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
     .logs-scroll::-webkit-scrollbar-thumb {
-      background: rgba(148, 163, 184, 0.32);
+      background: var(--scrollbar-thumb);
       border-radius: 9999px;
       border: 1px solid transparent;
       background-clip: content-box;
     }
     .logs-scroll::-webkit-scrollbar-thumb:hover {
-      background: rgba(56, 189, 248, 0.65);
-    }
-    html.light .logs-scroll {
-      scrollbar-color: rgba(100, 116, 139, 0.38) transparent;
-    }
-    html.light .logs-scroll::-webkit-scrollbar-thumb {
-      background: rgba(100, 116, 139, 0.28);
-    }
-    html.light .logs-scroll::-webkit-scrollbar-thumb:hover {
-      background: rgba(2, 132, 199, 0.6);
+      background: var(--scrollbar-thumb-hover);
     }
   </style>
 </head>
@@ -1130,9 +1308,9 @@ HTML_PAGE = """<!DOCTYPE html>
           <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
             <div class="inline-flex items-center gap-1" aria-label="Page Size">
               <span class="hidden sm:inline mr-0.5" style="color: var(--text-muted);">Per page</span>
-              <button onclick="setPageSize(20)" id="ps-20" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition active">20</button>
-              <button onclick="setPageSize(50)" id="ps-50" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition">50</button>
-              <button onclick="setPageSize(100)" id="ps-100" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition">100</button>
+              <button onclick="setPageSize(20)" id="ps-20" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer active">20</button>
+              <button onclick="setPageSize(50)" id="ps-50" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">50</button>
+              <button onclick="setPageSize(100)" id="ps-100" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">100</button>
             </div>
             <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
               <input type="checkbox" id="auto-refresh-chk" checked onchange="toggleAutoRefresh()" class="rounded">
@@ -1142,7 +1320,7 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
         </div>
 
-        <div id="runs-list" class="logs-scroll divide-y" style="border-color: var(--border-subtle);">
+        <div id="runs-list" class="logs-scroll">
           <div class="px-4 py-8 text-center text-xs" style="color: var(--text-muted);">Loading execution history...</div>
         </div>
 
@@ -1331,16 +1509,16 @@ HTML_PAGE = """<!DOCTYPE html>
       const buttons = [];
       const prevDisabled = currentPage <= 1;
       buttons.push(
-        `<button onclick="setPage(${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium transition ${prevDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Prev</button>`
+        `<button onclick="setPage(${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} class="log-ctrl-btn px-2.5 py-1 rounded-lg text-xs font-medium ${prevDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Prev</button>`
       );
       for (let p = 1; p <= totalPages; p++) {
         buttons.push(
-          `<button onclick="setPage(${p})" class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition ${p === currentPage ? 'active' : ''}">${p}</button>`
+          `<button onclick="setPage(${p})" class="log-ctrl-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer ${p === currentPage ? 'active' : ''}">${p}</button>`
         );
       }
       const nextDisabled = currentPage >= totalPages;
       buttons.push(
-        `<button onclick="setPage(${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium transition ${nextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Next</button>`
+        `<button onclick="setPage(${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} class="log-ctrl-btn px-2.5 py-1 rounded-lg text-xs font-medium ${nextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Next</button>`
       );
       controlsEl.innerHTML = buttons.join('');
     }
@@ -1388,42 +1566,44 @@ HTML_PAGE = """<!DOCTYPE html>
         const mode = runModeMap[r.id] || 'rich';
         const dotCls = r.status === 'ok' ? 'bg-emerald-500' : (r.status === 'push' ? 'bg-sky-500' : 'bg-rose-500');
         const tagHtml = r.status === 'ok'
-          ? `<span class="px-2 py-0.5 rounded-md text-xs font-medium" style="background: var(--bg-pill); color: var(--text-secondary);">${escapeHtml(r.tag)}</span>`
+          ? `<span class="run-tag-ok px-2 py-0.5 rounded-md text-xs font-medium">${escapeHtml(r.tag)}</span>`
           : (r.status === 'push'
-            ? `<span class="px-2 py-0.5 rounded-md text-xs font-medium bg-sky-500/15 text-sky-400">${escapeHtml(r.tag)}</span>`
-            : `<span class="px-2 py-0.5 rounded-md text-xs font-medium bg-rose-500/15 text-rose-400">${escapeHtml(r.tag)}</span>`);
+            ? `<span class="run-tag-push px-2 py-0.5 rounded-md text-xs font-medium">${escapeHtml(r.tag)}</span>`
+            : `<span class="run-tag-err px-2 py-0.5 rounded-md text-xs font-medium">${escapeHtml(r.tag)}</span>`);
 
         const cliTag = r.status === 'ok'
-          ? '<span class="text-emerald-400 font-semibold">[OK]</span>'
-          : (r.status === 'push' ? '<span class="text-sky-400 font-semibold">[PUSH]</span>' : '<span class="text-rose-400 font-semibold">[ERR]</span>');
+          ? '<span class="font-semibold" style="color: var(--status-ok-text);">[OK]</span>'
+          : (r.status === 'push'
+            ? '<span class="font-semibold" style="color: var(--status-push-text);">[PUSH]</span>'
+            : '<span class="font-semibold" style="color: var(--status-err-text);">[ERR]</span>');
 
         let drawerInner = '';
         if (isExpanded) {
           if (mode === 'raw') {
-            drawerInner = `<pre class="text-zinc-300 whitespace-pre-wrap break-words leading-6 overflow-x-auto">${escapeHtml(r.raw)}</pre>`;
+            drawerInner = `<pre class="cli-drawer-code rounded-xl p-3 whitespace-pre-wrap break-words leading-6 overflow-x-auto">${escapeHtml(r.raw)}</pre>`;
           } else {
             const fieldsHtml = (r.fields || []).map(([k, v]) => `
-              <div class="flex flex-col sm:flex-row sm:gap-3 py-1.5 border-b border-zinc-800/70 last:border-0">
-                <span class="text-zinc-400 sm:w-36 shrink-0">${escapeHtml(k)}:</span>
-                <span class="text-zinc-100 whitespace-pre-wrap break-words leading-relaxed">${escapeHtml(v)}</span>
+              <div class="cli-drawer-field flex flex-col sm:flex-row sm:gap-3 py-1.5">
+                <span class="sm:w-36 shrink-0" style="color: var(--drawer-text-sub);">${escapeHtml(k)}:</span>
+                <span class="whitespace-pre-wrap break-words leading-relaxed" style="color: var(--drawer-text-main);">${escapeHtml(v)}</span>
               </div>
             `).join('');
 
             const pushHtml = r.push_preview ? `
-              <div class="mt-3 pt-3 border-t border-zinc-800">
-                <div class="text-sky-400 font-semibold mb-1.5">▾ DingTalk Payload Preview:</div>
-                <div class="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 text-zinc-200 whitespace-pre-wrap break-words leading-6">${escapeHtml(r.push_preview)}</div>
+              <div class="mt-3 pt-3" style="border-top: 1px solid var(--drawer-border);">
+                <div class="font-semibold mb-1.5" style="color: var(--status-push-text);">▾ DingTalk Payload Preview:</div>
+                <div class="cli-drawer-code rounded-xl p-3 whitespace-pre-wrap break-words leading-6">${escapeHtml(r.push_preview)}</div>
               </div>
             ` : '';
 
             drawerInner = `
               <div class="mb-2.5 flex flex-wrap items-center gap-2">
-                <span class="text-zinc-500">${escapeHtml(r.full_time || r.time)}</span>
+                <span style="color: var(--drawer-text-muted);">${escapeHtml(r.full_time || r.time)}</span>
                 ${cliTag}
-                <span class="text-zinc-100">${escapeHtml(r.summary)}</span>
-                <span class="text-zinc-500">(${escapeHtml(r.dur)})</span>
+                <span style="color: var(--drawer-text-main);">${escapeHtml(r.summary)}</span>
+                <span style="color: var(--drawer-text-muted);">(${escapeHtml(r.dur)})</span>
               </div>
-              <div class="bg-zinc-900/50 border border-zinc-800/90 rounded-xl px-3.5 py-1.5">
+              <div class="cli-drawer-panel rounded-xl px-3.5 py-1.5">
                 ${fieldsHtml}
               </div>
               ${pushHtml}
@@ -1432,7 +1612,7 @@ HTML_PAGE = """<!DOCTYPE html>
         }
 
         return `
-          <div style="border-color: var(--border-subtle);">
+          <div>
             <button onclick="toggleRunExpand('${escapeHtml(r.id)}')" class="run-row w-full px-3.5 sm:px-4 py-3 flex items-center justify-between gap-2.5 text-left transition cursor-pointer">
               <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
                 <span class="w-2 h-2 rounded-full shrink-0 ${dotCls}"></span>
@@ -1447,10 +1627,10 @@ HTML_PAGE = """<!DOCTYPE html>
             </button>
 
             ${isExpanded ? `
-              <div class="cli-drawer border-t" style="border-color: var(--border-subtle);">
-                <div class="px-4 py-2 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between text-xs mono text-zinc-400">
+              <div class="cli-drawer" style="border-top: 1px solid var(--border-subtle);">
+                <div class="cli-drawer-header px-4 py-2 flex items-center justify-between text-xs mono">
                   <span class="truncate">${escapeHtml(data.log_file || '')} · ${escapeHtml(r.full_time || r.time)}</span>
-                  <button onclick="toggleRunMode('${escapeHtml(r.id)}', event)" class="px-2.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer shrink-0 ml-2">
+                  <button onclick="toggleRunMode('${escapeHtml(r.id)}', event)" class="cli-drawer-btn px-2.5 py-0.5 rounded cursor-pointer shrink-0 ml-2">
                     ${mode === 'raw' ? 'Rich View' : 'Raw Log'}
                   </button>
                 </div>

@@ -242,15 +242,15 @@ def send_dingtalk_notification(total_count, total_desc, men_count, men_desc, wom
     if not webhook_url:
         return False
     beijing_tz = timezone(timedelta(hours=8))
-    now_str = datetime.now(beijing_tz).strftime("%Y-%m-%d %H:%M:%S")
-    title = "End70 自动更新成功"
+    now_str = datetime.now(beijing_tz).strftime("%Y/%m/%d %H:%M:%S")
+    title = "产品数量更新"
     text = (
-        f"### End70 数据已更新 🚀\n\n"
-        f"**更新时间**: {now_str}\n"
-        f"**Men**: {men_count}（{men_desc}）\n"
-        f"**Women**: {women_count}（{women_desc}）\n"
-        f"**总计**: {total_count}（{total_desc}）\n\n"
-        f"[点击访问](https://zhouchong741.github.io/EndDiscount/)"
+        f"### End70 产品数量变化通知\n"
+        f"> **时间**：{now_str}  \n"
+        f"> **Men**：{men_count}（{men_desc}）  \n"
+        f"> **Women**：{women_count}（{women_desc}）  \n"
+        f"> **总计**：{total_count}（{total_desc}）  \n"
+        f"> [点击查看](https://discount.19930216.xyz)"
     )
     payload = {
         "msgtype": "markdown",
@@ -284,6 +284,9 @@ def main():
         for pt in COLLECTIONS:
             all_products.update(results_by_type[pt])
 
+        final_count = len(all_products)
+        final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}
+
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:
             save_data(all_products)
@@ -299,9 +302,6 @@ def main():
                 )
         else:
             print("No product changes detected; skipping file write and notification.", flush=True)
-
-        final_count = len(all_products)
-        final_counts = {pt: len(results_by_type[pt]) for pt in COLLECTIONS}
 
         env_file = os.getenv("GITHUB_ENV")
         if env_file:

@@ -83,7 +83,8 @@ class FastScraperTests(unittest.TestCase):
             call_kwargs = mock_post.call_args[1]
             payload = call_kwargs["json"]
             self.assertEqual(payload["msgtype"], "markdown")
-            self.assertIn("End70 数据已更新", payload["markdown"]["text"])
+            self.assertIn("### End70 产品数量变化通知", payload["markdown"]["text"])
+            self.assertIn("> **Men**：60（增加 3）  \n", payload["markdown"]["text"])
             self.assertIn("增加 5", payload["markdown"]["text"])
 
 

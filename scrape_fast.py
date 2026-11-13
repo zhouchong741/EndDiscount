@@ -31,6 +31,7 @@ RETRY_DELAY = 2
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FILE = os.path.join(BASE_DIR, "endclothing_70off.json")
 DATA_JS_FILE = os.path.join(BASE_DIR, "data.js")
+PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://discount.19930216.xyz")
 
 DINGTALK_WEBHOOK = os.getenv(
     "DINGTALK_WEBHOOK",
@@ -265,7 +266,7 @@ def send_dingtalk_notification(
         f"> **Men**：{_format_count_line(prev_men, men_count, men_desc)}  \n"
         f"> **Women**：{_format_count_line(prev_women, women_count, women_desc)}  \n"
         f"> **总计**：{_format_count_line(prev_total, total_count, total_desc)}  \n"
-        f"> [点击查看](https://discount.19930216.xyz)"
+        f"> [点击查看]({PUBLIC_SITE_URL})"
     )
     payload = {
         "msgtype": "markdown",
@@ -308,6 +309,7 @@ def main():
         print(f"Men: {prev_men} -> {final_counts['men']} ({men_desc})", flush=True)
         print(f"Women: {prev_women} -> {final_counts['women']} ({women_desc})", flush=True)
         print(f"Total: {initial_count} -> {final_count} ({total_desc})", flush=True)
+        print(f"Link: {PUBLIC_SITE_URL}", flush=True)
 
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:

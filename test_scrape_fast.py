@@ -93,6 +93,7 @@ class FastScraperTests(unittest.TestCase):
             self.assertIn("> **Men**：57 -> 60 (+3)  \n", payload["markdown"]["text"])
             self.assertIn("> **Women**：38 -> 40 (+2)  \n", payload["markdown"]["text"])
             self.assertIn("> **总计**：95 -> 100 (+5)  \n", payload["markdown"]["text"])
+            self.assertIn("> [点击查看](https://discount.19930216.xyz)", payload["markdown"]["text"])
 
 
 if __name__ == "__main__":

@@ -42,9 +42,12 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
         self.assertIn("Men：478 -> 478 (0)", runs[0]["push_preview"])
         self.assertIn("Women：370 -> 369 (-1)", runs[0]["push_preview"])
         self.assertIn("总计：848 -> 847 (-1)", runs[0]["push_preview"])
+        self.assertIn("链接：https://discount.19930216.xyz", runs[0]["push_preview"])
+        self.assertEqual(runs[0]["fields"][3], ["Link", "https://discount.19930216.xyz"])
         self.assertEqual(runs[1]["status"], "ok")
         self.assertEqual(runs[1]["summary"], "848 items (478M / 370W)")
         self.assertIn("Total: 848 -> 848 (0)", runs[1]["fields"][2][1])
+        self.assertEqual(runs[1]["fields"][3], ["Link", "https://discount.19930216.xyz"])
         self.assertEqual(runs[2]["status"], "err")
         self.assertIn("UnboundLocalError", runs[2]["summary"])
         self.assertNotEqual(avg, "--")
@@ -54,6 +57,7 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
 Men: 479 -> 478 (-1)
 Women: 369 -> 371 (+2)
 Total: 848 -> 849 (+1)
+Link: https://discount.19930216.xyz
 DingTalk notification sent: status=200, response={"errcode":0,"errmsg":"ok"}
 Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
 ==================== [2026-11-13 09:50:03] Finished (Exit: 0) ===================="""
@@ -67,6 +71,7 @@ Complete: total=849 (men=478, women=371) changed=True elapsed=1.95s
         self.assertIn("Men：479 -> 478 (-1)", runs[0]["push_preview"])
         self.assertIn("Women：369 -> 371 (+2)", runs[0]["push_preview"])
         self.assertIn("总计：848 -> 849 (+1)", runs[0]["push_preview"])
+        self.assertIn("链接：https://discount.19930216.xyz", runs[0]["push_preview"])
 
     def test_parse_end_monitor_runs(self):
         sample = """==================== [2026-11-13 09:00:01] Crawler End Started ====================

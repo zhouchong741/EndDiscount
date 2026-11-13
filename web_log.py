@@ -161,8 +161,10 @@ def _parse_end70_block(block, run_id, prev_counts=None):
     )
     m_prev = re.search(r"Loaded (\d+) existing products", raw)
     m_comp = re.search(r"Complete: total=(\d+) \(men=(\d+), women=(\d+)\) changed=(True|False) elapsed=([\d.]+)s", raw)
+    m_link = re.search(r"(?m)^Link:\s*(\S+)", raw)
     m_push = re.search(r"DingTalk notification sent: status=(\d+), response=(.+)", raw)
     m_fail = re.search(r"Scrape failed:\s*(.+)", raw)
+    site_url = m_link.group(1).strip() if m_link else "https://discount.19930216.xyz"
 
     if m_total_line:
         prev_total = int(m_total_line.group(1))
@@ -255,6 +257,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
             ["Status", "Exit 0 · Changed & Pushed"],
             ["Category Breakdown", breakdown],
             ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({diff_str})"],
+            ["Link", site_url],
         ]
         if m_push:
             fields.append(["Webhook Status", f"HTTP {m_push.group(1)} · {m_push.group(2).strip()}"])
@@ -263,7 +266,8 @@ def _parse_end70_block(block, run_id, prev_counts=None):
             f"时间：{end_time.replace('-', '/')}\n"
             f"Men：{_format_preview_line(prev_men, men, men_diff_str)}\n"
             f"Women：{_format_preview_line(prev_women, women, women_diff_str)}\n"
-            f"总计：{_format_preview_line(prev_total, total, diff_str)}"
+            f"总计：{_format_preview_line(prev_total, total, diff_str)}\n"
+            f"链接：{site_url}"
         )
         return {
             "id": run_id,
@@ -293,6 +297,7 @@ def _parse_end70_block(block, run_id, prev_counts=None):
             ["Status", "Exit 0 · Unchanged (Skipped file write & alert)"],
             ["Category Breakdown", breakdown],
             ["Change Summary", f"Total: {prev_total if prev_total is not None else total} -> {total} ({total_diff_str}) · Duration: {dur_str}"],
+            ["Link", site_url],
         ],
         "push_preview": None,
         "raw": raw,

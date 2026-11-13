@@ -6,7 +6,7 @@ import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 ISO_UTC_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z")
@@ -274,6 +274,25 @@ def _parse_end70_block(block, run_id, prev_counts=None):
     }
 
 
+def _get_end_brand_url(brand_name):
+    """获取 End 品牌对应的监控链接，优先从历史数据读取并回退标准 URL。"""
+    data_dir = PROJECTS_CONFIG["end"].get("data_dir")
+    if data_dir:
+        hist_file = os.path.join(data_dir, f"history-END-{brand_name}.json")
+        if os.path.exists(hist_file):
+            try:
+                with open(hist_file, "r", encoding="utf-8") as f:
+                    records = json.load(f)
+                if isinstance(records, list) and records and isinstance(records[-1], dict):
+                    url = records[-1].get("url")
+                    if url:
+                        return url
+            except Exception:
+                pass
+    vendor = "Hoka" if brand_name == "HOKA ONE ONE" else brand_name
+    return f"https://www.endclothing.com/en-cn/collections/mens-sale?refinementList%5Bvendor%5D%5B0%5D={quote(vendor, safe='')}"
+
+
 def _parse_end_block(block, run_id):
     raw = "\n".join(block["lines"])
     start_time = block["start_time"]
@@ -311,12 +330,8 @@ def _parse_end_block(block, run_id):
             "raw": raw,
         }
 
-    # 每行 3 个品牌，保持清晰换行排版
-    brand_chunks = []
-    for i in range(0, len(brands), 3):
-        chunk = "  |  ".join(f"{name}: {curr}" for name, _, curr, _ in brands[i:i + 3])
-        brand_chunks.append(chunk)
-    brand_lines_str = "\n".join(brand_chunks) if brand_chunks else "No brand details parsed"
+    # 每个品牌单独一行，方便查看
+    brand_lines_str = "\n".join(f"{name}: {curr}" for name, _, curr, _ in brands) if brands else "No brand details parsed"
 
     changed_brands = [(name, int(prev), int(curr), int(chg)) for name, prev, curr, chg in brands if int(chg) != 0]
 
@@ -336,7 +351,8 @@ def _parse_end_block(block, run_id):
             push_blocks.append(
                 f"### END-{n} 产品数量变化通知\n"
                 f"时间：{end_time.replace('-', '/')}\n"
-                f"变化：{p} -> {c} ({csign}{g})"
+                f"变化：{p} -> {c} ({csign}{g})\n"
+                f"链接：{_get_end_brand_url(n)}"
             )
 
         return {

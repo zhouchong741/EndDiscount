@@ -80,8 +80,13 @@ info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "END-HOKA ONE ONE: 0 → 16 (+16)")
+        self.assertEqual(runs[0]["fields"][2][1], "Montane: 41\nPatagonia: 128\nHOKA ONE ONE: 16")
         self.assertIn("END-HOKA ONE ONE 产品数量变化通知", runs[0]["push_preview"])
         self.assertIn("变化：0 -> 16 (+16)", runs[0]["push_preview"])
+        self.assertIn(
+            "链接：https://www.endclothing.com/en-cn/collections/mens-sale?refinementList%5Bvendor%5D%5B0%5D=Hoka",
+            runs[0]["push_preview"],
+        )
 
     def test_parse_end_monitor_compact_log_format(self):
         sample = """==================== [2026-11-13 09:30:01] Crawler End Started ====================
@@ -94,7 +99,12 @@ info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
         self.assertEqual(len(runs), 1)
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "END-Arcteryx: 15 → 14 (-1)")
+        self.assertEqual(runs[0]["fields"][2][1], "Montane: 41\nArcteryx: 14")
         self.assertIn("变化：15 -> 14 (-1)", runs[0]["push_preview"])
+        self.assertIn(
+            "链接：https://www.endclothing.com/en-cn/collections/mens-sale?refinementList%5Bvendor%5D%5B0%5D=Arcteryx",
+            runs[0]["push_preview"],
+        )
 
     def test_parse_thelasthunt_runs(self):
         sample = """==================== [2026-11-13 09:00:01] TheLastHunt Started ====================

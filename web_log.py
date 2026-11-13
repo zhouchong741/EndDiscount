@@ -992,6 +992,13 @@ HTML_PAGE = """<!DOCTYPE html>
       box-shadow: var(--card-shadow);
     }
 
+    .run-row {
+      min-height: 44px;
+      padding: 12px 14px;
+    }
+    @media (min-width: 640px) {
+      .run-row { padding-left: 16px; padding-right: 16px; }
+    }
     .run-row:hover { background: var(--bg-hover); }
 
     .product-card {
@@ -1421,7 +1428,10 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('nav-btn-products').classList.toggle('active', view === 'products');
       document.getElementById('nav-btn-logs').classList.toggle('active', view === 'logs');
       window.location.hash = view;
-      if (view === 'logs') fetchLogStatus();
+      if (view === 'logs') {
+        syncLogsScrollMaxHeight();
+        fetchLogStatus();
+      }
     }
 
     function switchProject(projKey) {
@@ -1479,6 +1489,7 @@ HTML_PAGE = """<!DOCTYPE html>
     }
 
     let cachedRunRowHeight = 0;
+    let observedRunRow = null;
     function syncLogsScrollMaxHeight() {
       const listEl = document.getElementById('runs-list');
       if (!listEl) return;
@@ -1491,6 +1502,17 @@ HTML_PAGE = """<!DOCTYPE html>
         // 以 20 条未展开日志的总高度为滚动容器基准上限（含 19 条 1px divide-y 边线）
         listEl.style.maxHeight = `${Math.ceil(cachedRunRowHeight * 20 + 20)}px`;
       }
+    }
+    const runRowResizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => syncLogsScrollMaxHeight())
+      : null;
+    function observeFirstRunRow() {
+      if (!runRowResizeObserver) return;
+      const firstRow = document.querySelector('#runs-list .run-row');
+      if (firstRow === observedRunRow) return;
+      runRowResizeObserver.disconnect();
+      observedRunRow = firstRow || null;
+      if (observedRunRow) runRowResizeObserver.observe(observedRunRow);
     }
     window.addEventListener('resize', syncLogsScrollMaxHeight);
 
@@ -1613,7 +1635,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
         return `
           <div>
-            <button onclick="toggleRunExpand('${escapeHtml(r.id)}')" class="run-row w-full px-3.5 sm:px-4 py-3 flex items-center justify-between gap-2.5 text-left transition cursor-pointer">
+            <button onclick="toggleRunExpand('${escapeHtml(r.id)}')" class="run-row w-full flex items-center justify-between gap-2.5 text-left transition cursor-pointer">
               <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
                 <span class="w-2 h-2 rounded-full shrink-0 ${dotCls}"></span>
                 <span class="mono text-xs shrink-0" style="color: var(--text-secondary);">${escapeHtml(r.time)}</span>
@@ -1643,6 +1665,8 @@ HTML_PAGE = """<!DOCTYPE html>
         `;
       }).join('');
       syncLogsScrollMaxHeight();
+      observeFirstRunRow();
+      requestAnimationFrame(syncLogsScrollMaxHeight);
       renderPagination(filtered.length, totalPages, startIdx, endIdx);
       listEl.scrollTop = resetScroll ? 0 : prevScrollTop;
     }

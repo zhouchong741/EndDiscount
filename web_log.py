@@ -1185,7 +1185,9 @@ HTML_PAGE = """<!DOCTYPE html>
     .logs-scroll {
       max-height: 920px;
       overflow-y: auto;
-      overscroll-behavior: contain;
+      overscroll-behavior-y: auto;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
       scrollbar-gutter: stable;
       scrollbar-width: thin;
       scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -1496,15 +1498,26 @@ HTML_PAGE = """<!DOCTYPE html>
     let observedRunRow = null;
     function syncLogsScrollMaxHeight() {
       const listEl = document.getElementById('runs-list');
-      if (!listEl) return;
+      if (!listEl || listEl.offsetParent === null) return;
       const firstRow = listEl.querySelector('.run-row');
       if (firstRow) {
         const h = firstRow.getBoundingClientRect().height;
         if (h > 0) cachedRunRowHeight = h;
       }
       if (cachedRunRowHeight > 0) {
-        // 以 20 条未展开日志的总高度为滚动容器基准上限（含 19 条 1px divide-y 边线）
-        listEl.style.maxHeight = `${Math.ceil(cachedRunRowHeight * 20 + 20)}px`;
+        // 桌面端以 20 条未展开日志的总高度为上限；手机端限制在一屏剩余视口高度内，保证默认 20 条即可在日志区内部流畅滚动
+        const rows20Height = Math.ceil(cachedRunRowHeight * 20 + 20);
+        if (window.innerWidth < 640) {
+          const rect = listEl.getBoundingClientRect();
+          const pagEl = document.getElementById('runs-pagination');
+          const pagHeight = pagEl ? Math.ceil(pagEl.getBoundingClientRect().height) : 44;
+          const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 700;
+          const docTop = Math.max(0, rect.top + window.scrollY);
+          const viewportAvailable = Math.max(240, Math.floor(vh - docTop - pagHeight - 18));
+          listEl.style.maxHeight = `${Math.min(rows20Height, viewportAvailable)}px`;
+        } else {
+          listEl.style.maxHeight = `${rows20Height}px`;
+        }
       }
     }
     const runRowResizeObserver = typeof ResizeObserver !== 'undefined'
@@ -1519,6 +1532,9 @@ HTML_PAGE = """<!DOCTYPE html>
       if (observedRunRow) runRowResizeObserver.observe(observedRunRow);
     }
     window.addEventListener('resize', syncLogsScrollMaxHeight);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', syncLogsScrollMaxHeight);
+    }
 
     function renderPagination(totalItems, totalPages, startIdx, endIdx) {
       const summaryEl = document.getElementById('page-summary');

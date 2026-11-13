@@ -762,11 +762,11 @@ HTML_PAGE = """<!DOCTYPE html>
       --drawer-bg-dark: #090d16;
       --drawer-header-bg-light: #f1f5f9;
       --drawer-header-bg-dark: rgba(24, 24, 27, 0.9);
-      --drawer-panel-bg-light: #ffffff;
+      --drawer-panel-bg-light: #f1f5f9;
       --drawer-panel-bg-dark: rgba(24, 24, 27, 0.5);
       --drawer-code-bg-light: #f1f5f9;
       --drawer-code-bg-dark: rgba(24, 24, 27, 0.9);
-      --drawer-border-light: #e2e8f0;
+      --drawer-border-light: #dbe4ee;
       --drawer-border-dark: rgba(39, 39, 42, 0.9);
       --drawer-btn-bg-light: #ffffff;
       --drawer-btn-bg-dark: #27272a;

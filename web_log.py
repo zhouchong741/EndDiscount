@@ -542,7 +542,7 @@ def _parse_tlh_block(block, run_id):
     }
 
 
-def parse_log_runs(project_key, log_text, max_runs=25):
+def parse_log_runs(project_key, log_text, max_runs=100):
     """将日志正文解析为结构化的倒序运行列表及平均耗时。"""
     blocks = _split_log_blocks(log_text)
     if not blocks:
@@ -609,8 +609,9 @@ def _get_project_counts():
 def get_project_status(project_key):
     """汇总单个项目的状态、单行摘要数据及结构化运行流水。"""
     cfg = PROJECTS_CONFIG.get(project_key, PROJECTS_CONFIG["end70"])
-    log_tail = get_log_tail(cfg["log_file"], 1400)
-    runs, avg_duration = parse_log_runs(cfg["id"], log_tail, max_runs=25)
+    tail_lines_map = {"end70": 1500, "end": 10000, "thelasthunt": 4500}
+    log_tail = get_log_tail(cfg["log_file"], tail_lines_map.get(project_key, 4500))
+    runs, avg_duration = parse_log_runs(cfg["id"], log_tail, max_runs=100)
 
     now_sh = datetime.now(SHANGHAI_TZ)
     server_time = now_sh.strftime("%Y-%m-%d %H:%M:%S")
@@ -986,6 +987,34 @@ HTML_PAGE = """<!DOCTYPE html>
     #back-to-top svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.5; }
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    .logs-scroll {
+      max-height: clamp(360px, 62vh, 640px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+    }
+    .logs-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+    .logs-scroll::-webkit-scrollbar-track { background: transparent; margin: 4px 0; }
+    .logs-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.32);
+      border-radius: 9999px;
+      border: 1px solid transparent;
+      background-clip: content-box;
+    }
+    .logs-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 189, 248, 0.65);
+    }
+    html.light .logs-scroll {
+      scrollbar-color: rgba(100, 116, 139, 0.38) transparent;
+    }
+    html.light .logs-scroll::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.28);
+    }
+    html.light .logs-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(2, 132, 199, 0.6);
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -1096,9 +1125,15 @@ HTML_PAGE = """<!DOCTYPE html>
 
       <!-- 结构化运行流水表 -->
       <div class="surface-card rounded-2xl overflow-hidden">
-        <div class="px-4 py-2.5 flex items-center justify-between text-xs" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
+        <div class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
           <span>Runs <span class="hidden sm:inline">(Click row to expand rich details &amp; alert payload)</span></span>
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <div class="inline-flex items-center gap-1" aria-label="Page Size">
+              <span class="hidden sm:inline mr-0.5" style="color: var(--text-muted);">Per page</span>
+              <button onclick="setPageSize(20)" id="ps-20" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition active">20</button>
+              <button onclick="setPageSize(50)" id="ps-50" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition">50</button>
+              <button onclick="setPageSize(100)" id="ps-100" class="filter-pill px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer transition">100</button>
+            </div>
             <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
               <input type="checkbox" id="auto-refresh-chk" checked onchange="toggleAutoRefresh()" class="rounded">
               <span>Auto (5s)</span>
@@ -1107,8 +1142,13 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
         </div>
 
-        <div id="runs-list" class="divide-y" style="border-color: var(--border-subtle);">
+        <div id="runs-list" class="logs-scroll divide-y" style="border-color: var(--border-subtle);">
           <div class="px-4 py-8 text-center text-xs" style="color: var(--text-muted);">Loading execution history...</div>
+        </div>
+
+        <div id="runs-pagination" class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs" style="border-top: 1px solid var(--border-subtle); color: var(--text-secondary);">
+          <span id="page-summary" class="mono">0–0 / 0</span>
+          <div id="page-controls" class="flex items-center gap-1"></div>
         </div>
       </div>
 
@@ -1160,11 +1200,41 @@ HTML_PAGE = """<!DOCTYPE html>
     let currentMainView = 'products';
     let currentProject = 'end70';
     let currentFilter = 'all';
+    const VALID_PAGE_SIZES = [20, 50, 100];
+    let pageSize = 20;
+    try {
+      const savedSize = parseInt(localStorage.getItem('dh_logs_page_size') || '20', 10);
+      if (VALID_PAGE_SIZES.includes(savedSize)) pageSize = savedSize;
+    } catch (e) {}
+    let currentPage = 1;
+    let lastRenderedProject = '';
     let latestPayload = null;
     let lastRunsSignature = '';
     let logPollTimer = null;
     const expandedRunIds = new Set();
     const runModeMap = {};
+
+    function syncPageSizePills() {
+      VALID_PAGE_SIZES.forEach(s => {
+        const btn = document.getElementById('ps-' + s);
+        if (btn) btn.classList.toggle('active', s === pageSize);
+      });
+    }
+    syncPageSizePills();
+
+    function setPageSize(size) {
+      if (!VALID_PAGE_SIZES.includes(size) || size === pageSize) return;
+      pageSize = size;
+      currentPage = 1;
+      try { localStorage.setItem('dh_logs_page_size', String(size)); } catch (e) {}
+      syncPageSizePills();
+      if (latestPayload) renderRuns(latestPayload, true);
+    }
+
+    function setPage(page) {
+      currentPage = Math.max(1, page);
+      if (latestPayload) renderRuns(latestPayload, true);
+    }
 
     function switchMainView(view) {
       currentMainView = view;
@@ -1178,6 +1248,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
     function switchProject(projKey) {
       currentProject = projKey;
+      currentPage = 1;
       document.querySelectorAll('#project-tabs .project-tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.project === projKey);
       });
@@ -1186,11 +1257,12 @@ HTML_PAGE = """<!DOCTYPE html>
 
     function setRunFilter(filterVal) {
       currentFilter = filterVal;
+      currentPage = 1;
       ['all', 'push', 'err'].forEach(f => {
         const btn = document.getElementById('flt-' + f);
         if (btn) btn.classList.toggle('active', f === filterVal);
       });
-      if (latestPayload) renderRuns(latestPayload);
+      if (latestPayload) renderRuns(latestPayload, true);
     }
 
     function escapeHtml(str) {
@@ -1228,7 +1300,36 @@ HTML_PAGE = """<!DOCTYPE html>
       if (latestPayload) renderRuns(latestPayload);
     }
 
-    function renderRuns(data) {
+    function renderPagination(totalItems, totalPages, startIdx, endIdx) {
+      const summaryEl = document.getElementById('page-summary');
+      const controlsEl = document.getElementById('page-controls');
+      if (!summaryEl || !controlsEl) return;
+
+      if (totalItems === 0) {
+        summaryEl.textContent = '0–0 / 0';
+        controlsEl.innerHTML = '';
+        return;
+      }
+
+      summaryEl.textContent = `${startIdx + 1}–${endIdx} / ${totalItems} · Page ${currentPage}/${totalPages}`;
+      const buttons = [];
+      const prevDisabled = currentPage <= 1;
+      buttons.push(
+        `<button onclick="setPage(${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium transition ${prevDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Prev</button>`
+      );
+      for (let p = 1; p <= totalPages; p++) {
+        buttons.push(
+          `<button onclick="setPage(${p})" class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition ${p === currentPage ? 'active' : ''}">${p}</button>`
+        );
+      }
+      const nextDisabled = currentPage >= totalPages;
+      buttons.push(
+        `<button onclick="setPage(${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} class="filter-pill px-2.5 py-1 rounded-lg border text-xs font-medium transition ${nextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Next</button>`
+      );
+      controlsEl.innerHTML = buttons.join('');
+    }
+
+    function renderRuns(data, resetScroll = false) {
       const counts = data.project_counts || {};
       ['end70', 'end', 'thelasthunt'].forEach(k => {
         const badgeEl = document.getElementById('badge-' + k);
@@ -1248,17 +1349,24 @@ HTML_PAGE = """<!DOCTYPE html>
       document.getElementById('strip-schedule').textContent = data.cron_schedule || '--';
       document.getElementById('strip-avg').textContent = 'Avg ' + (data.avg_duration || '--');
 
-      const allRuns = data.runs || [];
-      const filtered = allRuns.filter(r => currentFilter === 'all' || r.status === currentFilter);
+      const cappedRuns = (data.runs || []).slice(0, 100);
+      const filtered = cappedRuns.filter(r => currentFilter === 'all' || r.status === currentFilter);
       document.getElementById('row-count').textContent = `${filtered.length} runs`;
 
       const listEl = document.getElementById('runs-list');
       if (filtered.length === 0) {
         listEl.innerHTML = `<div class="px-4 py-8 text-center text-xs" style="color: var(--text-muted);">No matching runs</div>`;
+        renderPagination(0, 1, 0, 0);
         return;
       }
 
-      listEl.innerHTML = filtered.map(r => {
+      const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const startIdx = (currentPage - 1) * pageSize;
+      const endIdx = Math.min(filtered.length, startIdx + pageSize);
+      const pageRuns = filtered.slice(startIdx, endIdx);
+
+      listEl.innerHTML = pageRuns.map(r => {
         const isExpanded = expandedRunIds.has(r.id);
         const mode = runModeMap[r.id] || 'rich';
         const dotCls = r.status === 'ok' ? 'bg-emerald-500' : (r.status === 'push' ? 'bg-sky-500' : 'bg-rose-500');
@@ -1337,6 +1445,8 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
         `;
       }).join('');
+      renderPagination(filtered.length, totalPages, startIdx, endIdx);
+      if (resetScroll) listEl.scrollTop = 0;
     }
 
     async function fetchLogStatus(forceRender = false) {
@@ -1349,6 +1459,7 @@ HTML_PAGE = """<!DOCTYPE html>
         if (data.server_ts_ms) {
           window.__serverTimeOffsetMs = data.server_ts_ms - Date.now();
         }
+        const projectChanged = data.project !== lastRenderedProject;
         const sig = JSON.stringify({
           project: data.project,
           filter: currentFilter,
@@ -1357,7 +1468,8 @@ HTML_PAGE = """<!DOCTYPE html>
         });
         if (forceRender || sig !== lastRunsSignature) {
           lastRunsSignature = sig;
-          renderRuns(data);
+          lastRenderedProject = data.project;
+          renderRuns(data, projectChanged);
         }
       } catch (err) {
         document.getElementById('runs-list').innerHTML = `<div class="px-4 py-6 text-center text-xs text-rose-500">Failed to load logs: ${escapeHtml(err.message || err)}</div>`;

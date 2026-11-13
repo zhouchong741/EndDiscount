@@ -178,6 +178,23 @@ Changed: 1
         self.assertIn("Icebreaker Products: 62 -> 61 (-1) [2017ms]", runs[0]["fields"][1][1])
         self.assertIn("变化：62 -> 61 (-1)", runs[0]["push_preview"])
 
+    def test_parse_log_runs_caps_at_100_newest(self):
+        blocks = []
+        for idx in range(105):
+            sec = idx % 60
+            minute = idx // 60
+            blocks.append(
+                f"==================== [2026-11-13 08:{minute:02d}:{sec:02d}] Scrape Started ====================\n"
+                f"No product changes detected; skipping file write and notification.\n"
+                f"Complete: total={100 + idx} (men={60 + idx}, women=40) changed=False elapsed=1.00s\n"
+                f"==================== [2026-11-13 08:{minute:02d}:{sec:02d}] Finished (Exit: 0) ===================="
+            )
+
+        runs, _ = web_log.parse_log_runs("end70", "\n".join(blocks))
+        self.assertEqual(len(runs), 100)
+        self.assertIn("204 items", runs[0]["summary"])
+        self.assertIn("105 items", runs[-1]["summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

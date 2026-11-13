@@ -988,7 +988,7 @@ HTML_PAGE = """<!DOCTYPE html>
     .scrollbar-hide::-webkit-scrollbar { display: none; }
     .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
     .logs-scroll {
-      max-height: clamp(360px, 62vh, 640px);
+      max-height: 920px;
       overflow-y: auto;
       overscroll-behavior: contain;
       scrollbar-gutter: stable;
@@ -1300,6 +1300,22 @@ HTML_PAGE = """<!DOCTYPE html>
       if (latestPayload) renderRuns(latestPayload);
     }
 
+    let cachedRunRowHeight = 0;
+    function syncLogsScrollMaxHeight() {
+      const listEl = document.getElementById('runs-list');
+      if (!listEl) return;
+      const firstRow = listEl.querySelector('.run-row');
+      if (firstRow) {
+        const h = firstRow.getBoundingClientRect().height;
+        if (h > 0) cachedRunRowHeight = h;
+      }
+      if (cachedRunRowHeight > 0) {
+        // 以 20 条未展开日志的总高度为滚动容器基准上限（含 19 条 1px divide-y 边线）
+        listEl.style.maxHeight = `${Math.ceil(cachedRunRowHeight * 20 + 20)}px`;
+      }
+    }
+    window.addEventListener('resize', syncLogsScrollMaxHeight);
+
     function renderPagination(totalItems, totalPages, startIdx, endIdx) {
       const summaryEl = document.getElementById('page-summary');
       const controlsEl = document.getElementById('page-controls');
@@ -1360,6 +1376,7 @@ HTML_PAGE = """<!DOCTYPE html>
         return;
       }
 
+      const prevScrollTop = listEl.scrollTop;
       const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
       if (currentPage > totalPages) currentPage = totalPages;
       const startIdx = (currentPage - 1) * pageSize;
@@ -1445,8 +1462,9 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
         `;
       }).join('');
+      syncLogsScrollMaxHeight();
       renderPagination(filtered.length, totalPages, startIdx, endIdx);
-      if (resetScroll) listEl.scrollTop = 0;
+      listEl.scrollTop = resetScroll ? 0 : prevScrollTop;
     }
 
     async function fetchLogStatus(forceRender = false) {

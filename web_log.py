@@ -20,7 +20,7 @@ PORT = 8088
 PROJECTS_CONFIG = {
     "end70": {
         "id": "end70",
-        "name": "End70New",
+        "name": "End70",
         "badge": "Algolia API",
         "log_file": "/var/log/enddiscount.log",
         "run_script": "/opt/crawler/EndDiscount/run_cron.sh",
@@ -30,7 +30,7 @@ PROJECTS_CONFIG = {
     },
     "end": {
         "id": "end",
-        "name": "End Monitor",
+        "name": "End",
         "badge": "Node.js",
         "log_file": "/var/log/crawler-end.log",
         "run_script": "/opt/crawler/End/run_cron.sh",
@@ -40,7 +40,7 @@ PROJECTS_CONFIG = {
     },
     "thelasthunt": {
         "id": "thelasthunt",
-        "name": "TheLastHunt",
+        "name": "TLH",
         "badge": "Node.js",
         "log_file": "/var/log/crawler-thelasthunt.log",
         "run_script": "/opt/crawler/TheLastHunt/run_cron.sh",
@@ -1271,65 +1271,39 @@ HTML_PAGE = """<!DOCTYPE html>
     <!-- ========================= View 2: Logs (Style B Outer + Style C Drawer) ========================= -->
     <div id="view-logs" class="hidden max-w-5xl mx-auto space-y-3.5">
 
-      <!-- 项目 Tab + 过滤器 + Run Now -->
-      <div class="flex flex-wrap items-center justify-between gap-2.5">
-        <div class="flex flex-wrap items-center gap-1.5" id="project-tabs">
-          <button class="pill-btn project-tab-btn active px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end70" onclick="switchProject('end70')">
-            End70New <span class="mono opacity-80 ml-1" id="badge-end70">--</span>
-          </button>
-          <button class="pill-btn project-tab-btn px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end" onclick="switchProject('end')">
-            End Monitor <span class="mono opacity-80 ml-1" id="badge-end">--</span>
-          </button>
-          <button class="pill-btn project-tab-btn px-3 py-1.5 rounded-xl text-xs font-medium" data-project="thelasthunt" onclick="switchProject('thelasthunt')">
-            TheLastHunt <span class="mono opacity-80 ml-1" id="badge-thelasthunt">--</span>
-          </button>
+      <!-- 项目 Tab + 过滤器（同一行，无数量徽章） -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1 sm:gap-1.5 shrink-0" id="project-tabs">
+          <button class="pill-btn project-tab-btn active px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end70" onclick="switchProject('end70')">End70</button>
+          <button class="pill-btn project-tab-btn px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end" onclick="switchProject('end')">End</button>
+          <button class="pill-btn project-tab-btn px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium" data-project="thelasthunt" onclick="switchProject('thelasthunt')">TLH</button>
         </div>
 
-        <div class="flex items-center gap-2 ml-auto">
-          <div class="nav-pill-group flex p-0.5 rounded-lg text-xs">
-            <button onclick="setRunFilter('all')" id="flt-all" class="filter-pill active px-2.5 py-1 rounded-md font-medium">All</button>
-            <button onclick="setRunFilter('push')" id="flt-push" class="filter-pill px-2.5 py-1 rounded-md font-medium">Pushed</button>
-            <button onclick="setRunFilter('err')" id="flt-err" class="filter-pill px-2.5 py-1 rounded-md font-medium">Errors</button>
-          </div>
-          <button onclick="triggerCurrentProjectScrape()" class="btn-primary px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer shrink-0">
-            Run Now
-          </button>
-        </div>
-      </div>
-
-      <!-- 单行状态摘要条 -->
-      <div class="surface-card rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <span id="strip-health" class="inline-flex items-center gap-1.5 font-semibold text-emerald-500 shrink-0">
-            <i class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></i> Operational
-          </span>
-          <span style="color: var(--border-strong);">|</span>
-          <span id="strip-detail" class="mono truncate" style="color: var(--text-primary);">--</span>
-        </div>
-
-        <div class="flex items-center gap-3 mono shrink-0" style="color: var(--text-secondary);">
-          <span id="trigger-msg" style="color: var(--accent-cyan);"></span>
-          <span id="strip-schedule">--</span>
-          <span id="strip-avg">Avg --</span>
+        <div class="nav-pill-group flex p-0.5 rounded-lg text-xs shrink-0">
+          <button onclick="setRunFilter('all')" id="flt-all" class="filter-pill active px-2 sm:px-2.5 py-1 rounded-md font-medium">All</button>
+          <button onclick="setRunFilter('push')" id="flt-push" class="filter-pill px-2 sm:px-2.5 py-1 rounded-md font-medium">Pushed</button>
+          <button onclick="setRunFilter('err')" id="flt-err" class="filter-pill px-2 sm:px-2.5 py-1 rounded-md font-medium">Errors</button>
         </div>
       </div>
 
       <!-- 结构化运行流水表 -->
       <div class="surface-card rounded-2xl overflow-hidden">
-        <div class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
-          <span>Runs <span class="hidden sm:inline">(Click row to expand rich details &amp; alert payload)</span></span>
-          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
-            <div class="inline-flex items-center gap-1" aria-label="Page Size">
+        <div class="px-3.5 sm:px-4 py-2 flex items-center justify-between gap-2 text-xs" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
+          <span class="font-medium shrink-0">Runs <span class="hidden sm:inline font-normal">(Click row to expand rich details &amp; alert payload)</span></span>
+          <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div class="inline-flex items-center gap-0.5 sm:gap-1" aria-label="Page Size">
               <span class="hidden sm:inline mr-0.5" style="color: var(--text-muted);">Per page</span>
-              <button onclick="setPageSize(20)" id="ps-20" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer active">20</button>
-              <button onclick="setPageSize(50)" id="ps-50" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">50</button>
-              <button onclick="setPageSize(100)" id="ps-100" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">100</button>
+              <button onclick="setPageSize(20)" id="ps-20" class="log-ctrl-btn px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer active">20</button>
+              <button onclick="setPageSize(50)" id="ps-50" class="log-ctrl-btn px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">50</button>
+              <button onclick="setPageSize(100)" id="ps-100" class="log-ctrl-btn px-1.5 sm:px-2 py-0.5 rounded-md text-[11px] font-medium cursor-pointer">100</button>
             </div>
-            <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+            <label class="inline-flex items-center gap-1 sm:gap-1.5 cursor-pointer select-none">
               <input type="checkbox" id="auto-refresh-chk" checked onchange="toggleAutoRefresh()" class="rounded">
-              <span>Auto (5s)</span>
+              <span>Auto<span class="hidden sm:inline"> (5s)</span></span>
             </label>
-            <span class="mono" id="row-count">0 runs</span>
+            <button id="run-now-btn" onclick="triggerCurrentProjectScrape()" class="btn-primary px-2.5 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-medium cursor-pointer shrink-0">
+              Run Now
+            </button>
           </div>
         </div>
 
@@ -1566,28 +1540,8 @@ HTML_PAGE = """<!DOCTYPE html>
     }
 
     function renderRuns(data, resetScroll = false) {
-      const counts = data.project_counts || {};
-      ['end70', 'end', 'thelasthunt'].forEach(k => {
-        const badgeEl = document.getElementById('badge-' + k);
-        if (badgeEl && counts[k] !== undefined) badgeEl.textContent = counts[k];
-      });
-
-      const healthEl = document.getElementById('strip-health');
-      if (data.healthy) {
-        healthEl.className = 'inline-flex items-center gap-1.5 font-semibold text-emerald-500 shrink-0';
-        healthEl.innerHTML = '<i class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></i> Operational';
-      } else {
-        healthEl.className = 'inline-flex items-center gap-1.5 font-semibold text-rose-500 shrink-0';
-        healthEl.innerHTML = '<i class="w-2 h-2 rounded-full bg-rose-500 inline-block"></i> Error Detected';
-      }
-
-      document.getElementById('strip-detail').textContent = data.detail_stats || '--';
-      document.getElementById('strip-schedule').textContent = data.cron_schedule || '--';
-      document.getElementById('strip-avg').textContent = 'Avg ' + (data.avg_duration || '--');
-
       const cappedRuns = (data.runs || []).slice(0, 100);
       const filtered = cappedRuns.filter(r => currentFilter === 'all' || r.status === currentFilter);
-      document.getElementById('row-count').textContent = `${filtered.length} runs`;
 
       const listEl = document.getElementById('runs-list');
       if (filtered.length === 0) {
@@ -1718,19 +1672,31 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     }
 
+    let triggerResetTimer = null;
     async function triggerCurrentProjectScrape() {
-      const msgEl = document.getElementById('trigger-msg');
-      msgEl.textContent = 'Running...';
+      const btn = document.getElementById('run-now-btn');
+      if (!btn || btn.disabled) return;
+      if (triggerResetTimer) clearTimeout(triggerResetTimer);
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      btn.classList.add('opacity-75');
       try {
         const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
         const res = await fetch(base + `api/trigger?project=${currentProject}`, { method: 'POST' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         await res.json();
+        btn.textContent = 'Triggered';
         setTimeout(fetchLogStatus, 1400);
         setTimeout(fetchLogStatus, 3400);
       } catch (err) {
-        msgEl.textContent = 'Trigger failed';
+        btn.textContent = 'Failed';
+      } finally {
+        triggerResetTimer = setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = 'Run Now';
+          btn.classList.remove('opacity-75');
+        }, 2500);
       }
-      setTimeout(() => { msgEl.textContent = ''; }, 4500);
     }
 
     function toggleAutoRefresh() {

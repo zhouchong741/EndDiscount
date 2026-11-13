@@ -195,6 +195,26 @@ Changed: 1
         self.assertIn("204 items", runs[0]["summary"])
         self.assertIn("105 items", runs[-1]["summary"])
 
+    def test_parse_feishu_sent_tags_across_projects(self):
+        end70_sample = """==================== [2026-11-13 11:00:01] Scrape Started ====================
+Men: 478 -> 479 (+1)
+Women: 369 -> 369 (0)
+Total: 847 -> 848 (+1)
+Feishu notification sent: status=200, response={"StatusCode":0,"StatusMessage":"success"}
+Complete: total=848 (men=479, women=369) changed=True elapsed=1.50s
+==================== [2026-11-13 11:00:03] Finished (Exit: 0) ===================="""
+        runs, _ = web_log.parse_log_runs("end70", end70_sample)
+        self.assertEqual(runs[0]["tag"], "Feishu Sent")
+        self.assertIn("HTTP 200", runs[0]["fields"][4][1])
+
+        end_sample = """==================== [2026-11-13 11:00:01] Crawler End Started ====================
+[END-Arcteryx] Check complete. 变化: 14 -> 15 (+1)
+info: 发送通知到: https://open.feishu.cn/open-apis/bot/v2/hook/e6938e11-3931-4c18-94b1-3658335c5f92
+info: 飞书通知发送成功
+==================== [2026-11-13 11:00:03] Finished (Exit: 0) ===================="""
+        runs, _ = web_log.parse_log_runs("end", end_sample)
+        self.assertEqual(runs[0]["tag"], "Feishu Sent")
+
 
 if __name__ == "__main__":
     unittest.main()

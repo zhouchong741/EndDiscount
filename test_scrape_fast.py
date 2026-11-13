@@ -68,18 +68,18 @@ class FastScraperTests(unittest.TestCase):
         self.assertEqual(scraper.format_change_desc(a, b), "上新 1 / 下架 1")
         self.assertEqual(scraper.format_change_desc(a, c), "价格或信息更新")
 
-    def test_send_dingtalk_notification(self):
+    def test_send_feishu_notification(self):
         from unittest.mock import patch
         with patch("requests.post") as mock_post:
-            mock_post.return_value = Mock(status_code=200, text='{"errcode":0}')
-            ok = scraper.send_dingtalk_notification(
+            mock_post.return_value = Mock(status_code=200, text='{"StatusCode":0,"StatusMessage":"success"}')
+            ok = scraper.send_feishu_notification(
                 total_count=100,
                 total_desc="+5",
                 men_count=60,
                 men_desc="+3",
                 women_count=40,
                 women_desc="+2",
-                webhook="https://example.com/fake_webhook",
+                webhook="https://example.com/fake_feishu_webhook",
                 prev_total=95,
                 prev_men=57,
                 prev_women=38,
@@ -88,12 +88,21 @@ class FastScraperTests(unittest.TestCase):
             mock_post.assert_called_once()
             call_kwargs = mock_post.call_args[1]
             payload = call_kwargs["json"]
-            self.assertEqual(payload["msgtype"], "markdown")
-            self.assertIn("### End70 产品数量变化通知", payload["markdown"]["text"])
-            self.assertIn("> **Men**：57 -> 60 (+3)  \n", payload["markdown"]["text"])
-            self.assertIn("> **Women**：38 -> 40 (+2)  \n", payload["markdown"]["text"])
-            self.assertIn("> **总计**：95 -> 100 (+5)  \n", payload["markdown"]["text"])
-            self.assertIn("> [点击查看](https://discount.19930216.xyz)", payload["markdown"]["text"])
+            self.assertEqual(payload["msg_type"], "interactive")
+            card = payload["card"]
+            self.assertEqual(card["schema"], "2.0")
+            self.assertEqual(card["header"]["title"]["content"], "End70 产品数量变化通知")
+            self.assertEqual(card["header"]["template"], "green")
+            md = card["body"]["elements"][0]["content"]
+            self.assertIn("**Men**：57 -> 60 <font color='green'>(+3)</font>", md)
+            self.assertIn("**Women**：38 -> 40 <font color='green'>(+2)</font>", md)
+            self.assertIn("**总计**：95 -> 100 <font color='green'>(+5)</font>", md)
+            self.assertEqual(card["body"]["elements"][1]["tag"], "hr")
+            btn = card["body"]["elements"][2]
+            self.assertEqual(btn["tag"], "button")
+            self.assertEqual(btn["text"]["content"], "点击查看")
+            self.assertEqual(btn["behaviors"][0]["type"], "open_url")
+            self.assertEqual(btn["behaviors"][0]["default_url"], "https://discount.19930216.xyz")
 
 
 if __name__ == "__main__":

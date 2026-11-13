@@ -33,9 +33,9 @@ OUTPUT_FILE = os.path.join(BASE_DIR, "endclothing_70off.json")
 DATA_JS_FILE = os.path.join(BASE_DIR, "data.js")
 PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://discount.19930216.xyz")
 
-DINGTALK_WEBHOOK = os.getenv(
-    "DINGTALK_WEBHOOK",
-    "https://oapi.dingtalk.com/robot/send?access_token=5945ce9476563718586b7134fbe53ff8e501c6d1425c71c67b5a365d27f7995b",
+FEISHU_WEBHOOK = os.getenv(
+    "FEISHU_WEBHOOK",
+    "https://open.feishu.cn/open-apis/bot/v2/hook/e6938e11-3931-4c18-94b1-3658335c5f92",
 )
 
 
@@ -235,13 +235,83 @@ def format_change_desc(old_items, new_items):
     return "0"
 
 
-def _format_count_line(prev_count, curr_count, desc):
+def _feishu_diff_color(desc, diff=None):
+    text = str(desc or "").strip()
+    if text.startswith("+") or (diff is not None and diff > 0) or "上新" in text:
+        return "green"
+    if text.startswith("-") or (diff is not None and diff < 0):
+        return "red"
+    if text == "0":
+        return "grey"
+    return "green"
+
+
+def _format_feishu_count_line(prev_count, curr_count, desc):
+    diff = (curr_count - prev_count) if prev_count is not None else None
+    color = _feishu_diff_color(desc, diff=diff)
     if prev_count is not None:
-        return f"{prev_count} -> {curr_count} ({desc})"
-    return f"{curr_count}（{desc}）"
+        return f"{prev_count} -> {curr_count} <font color='{color}'>({desc})</font>"
+    return f"{curr_count}（<font color='{color}'>{desc}</font>）"
 
 
-def send_dingtalk_notification(
+def build_feishu_card(
+    now_str,
+    total_count,
+    total_desc,
+    men_count,
+    men_desc,
+    women_count,
+    women_desc,
+    prev_total=None,
+    prev_men=None,
+    prev_women=None,
+):
+    """构造飞书 Card JSON 2.0 极简竖向卡片（只调整 UI 样式，不改动推送字段内容）。"""
+    total_diff = (total_count - prev_total) if prev_total is not None else 0
+    if total_diff > 0:
+        header_tpl, tag_color = "green", "green"
+    elif total_diff < 0:
+        header_tpl, tag_color = "orange", "orange"
+    else:
+        header_tpl, tag_color = "blue", "blue"
+
+    md_content = "\n".join([
+        f"**时间**：{now_str}",
+        f"**Men**：{_format_feishu_count_line(prev_men, men_count, men_desc)}",
+        f"**Women**：{_format_feishu_count_line(prev_women, women_count, women_desc)}",
+        f"**总计**：{_format_feishu_count_line(prev_total, total_count, total_desc)}",
+    ])
+
+    return {
+        "schema": "2.0",
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "End70 产品数量变化通知"},
+            "template": header_tpl,
+            "text_tag_list": [
+                {
+                    "tag": "text_tag",
+                    "text": {"tag": "plain_text", "content": "End70"},
+                    "color": tag_color,
+                }
+            ],
+        },
+        "body": {
+            "elements": [
+                {"tag": "markdown", "content": md_content},
+                {"tag": "hr"},
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "点击查看"},
+                    "type": "primary",
+                    "behaviors": [{"type": "open_url", "default_url": PUBLIC_SITE_URL}],
+                },
+            ]
+        },
+    }
+
+
+def send_feishu_notification(
     total_count,
     total_desc,
     men_count,
@@ -253,34 +323,42 @@ def send_dingtalk_notification(
     prev_men=None,
     prev_women=None,
 ):
-    """当数据变化且不在 GitHub Actions 环境中时直接调用钉钉 Webhook 推送通知。"""
-    webhook_url = webhook or DINGTALK_WEBHOOK
+    """当数据变化且不在 GitHub Actions 环境中时直接调用飞书 Webhook 推送卡片通知。"""
+    webhook_url = webhook or FEISHU_WEBHOOK
     if not webhook_url:
         return False
     beijing_tz = timezone(timedelta(hours=8))
     now_str = datetime.now(beijing_tz).strftime("%Y/%m/%d %H:%M:%S")
-    title = "产品数量更新"
-    text = (
-        f"### End70 产品数量变化通知\n"
-        f"> **时间**：{now_str}  \n"
-        f"> **Men**：{_format_count_line(prev_men, men_count, men_desc)}  \n"
-        f"> **Women**：{_format_count_line(prev_women, women_count, women_desc)}  \n"
-        f"> **总计**：{_format_count_line(prev_total, total_count, total_desc)}  \n"
-        f"> [点击查看]({PUBLIC_SITE_URL})"
+    card = build_feishu_card(
+        now_str=now_str,
+        total_count=total_count,
+        total_desc=total_desc,
+        men_count=men_count,
+        men_desc=men_desc,
+        women_count=women_count,
+        women_desc=women_desc,
+        prev_total=prev_total,
+        prev_men=prev_men,
+        prev_women=prev_women,
     )
     payload = {
-        "msgtype": "markdown",
-        "markdown": {
-            "title": title,
-            "text": text,
-        },
+        "msg_type": "interactive",
+        "card": card,
     }
     try:
         resp = requests.post(webhook_url, json=payload, timeout=10)
-        print(f"DingTalk notification sent: status={resp.status_code}, response={resp.text}", flush=True)
-        return resp.status_code == 200
+        print(f"Feishu notification sent: status={resp.status_code}, response={resp.text}", flush=True)
+        if resp.status_code != 200:
+            return False
+        try:
+            body = json.loads(resp.text) if resp.text else {}
+        except Exception:
+            return True
+        if isinstance(body, dict) and ("code" in body or "StatusCode" in body):
+            return body.get("code") == 0 or body.get("StatusCode") == 0
+        return True
     except Exception as e:
-        print(f"Failed to send DingTalk notification: {e}", flush=True)
+        print(f"Failed to send Feishu notification: {e}", flush=True)
         return False
 
 
@@ -314,9 +392,9 @@ def main():
         has_changed = (all_products != existing) or not os.path.exists(DATA_JS_FILE)
         if has_changed:
             save_data(all_products)
-            # 如果不在 GitHub Actions 环境（如在 VPS 独立运行），直接发送钉钉通知
+            # 如果不在 GitHub Actions 环境（如在 VPS 独立运行），直接发送飞书卡片通知
             if os.getenv("GITHUB_ACTIONS") != "true":
-                send_dingtalk_notification(
+                send_feishu_notification(
                     final_count,
                     total_desc,
                     final_counts["men"],

@@ -247,7 +247,15 @@ def _parse_end_block(block, run_id):
     dur_val = _calc_duration_sec(start_time, block["end_time"])
     dur_str = f"{dur_val:.2f}s" if dur_val is not None else "--"
 
-    brands = re.findall(r"\[END-([^\]]+)\] Check complete\. Prev: (\d+), Curr: (\d+), Change: ([+-]?\d+)", raw)
+    brands = re.findall(
+        r"\[END-([^\]]+)\] Check complete\. 变化:\s*(\d+)\s*->\s*(\d+)\s*\(([+-]?\d+)\)",
+        raw,
+    )
+    if not brands:
+        brands = re.findall(
+            r"\[END-([^\]]+)\] Check complete\. Prev: (\d+), Curr: (\d+), Change: ([+-]?\d+)",
+            raw,
+        )
     has_err_line = bool(re.search(r"(?m)^error:", raw))
     has_notify = "发送通知到:" in raw or any(int(c) != 0 for _, _, _, c in brands)
 
@@ -289,12 +297,11 @@ def _parse_end_block(block, run_id):
         )
         push_blocks = []
         for n, p, c, g in changed_brands:
-            csign = "+" if g >= 0 else "-"
+            csign = "+" if g > 0 else ""
             push_blocks.append(
                 f"### END-{n} 产品数量变化通知\n"
                 f"时间：{end_time.replace('-', '/')}\n"
-                f"之前：{p} 现在：{c}\n"
-                f"变化：({csign} {abs(g)})"
+                f"变化：{p} -> {c} ({csign}{g})"
             )
 
         return {
@@ -343,15 +350,26 @@ def _parse_tlh_block(block, run_id):
     dur_val = _calc_duration_sec(start_time, block["end_time"])
     dur_str = f"{dur_val:.2f}s" if dur_val is not None else "--"
 
-    cat_pattern = re.compile(
+    cat_pattern_new = re.compile(
+        r"\d+\.\s+([^\n]+)\n\s+URL:\s+(\S+)\n\s+Status:\s+([^\n]+)\n\s+变化:\s+(\d+)\s*->\s*(\d+)\s*\(([+-]?\d+)\)\n\s+Duration:\s+([^\n]+)"
+    )
+    cat_pattern_old = re.compile(
         r"\d+\.\s+([^\n]+)\n\s+URL:\s+(\S+)\n\s+Status:\s+([^\n]+)\n\s+Previous Count:\s+(\d+)\n\s+Current Count:\s+(\d+)\n\s+Changed:\s+([^\n]+)\n\s+Duration:\s+([^\n]+)"
     )
-    cats = cat_pattern.findall(raw)
+    cats_new = cat_pattern_new.findall(raw)
+    cats_old = [] if cats_new else cat_pattern_old.findall(raw)
+    parsed_cats = [
+        (name, url, st, int(prev), int(curr), (int(prev) != int(curr)) or (int(chg_val) != 0), cdur)
+        for name, url, st, prev, curr, chg_val, cdur in cats_new
+    ] or [
+        (name, url, st, int(prev), int(curr), ("Yes" in chg) or (int(prev) != int(curr)), cdur)
+        for name, url, st, prev, curr, chg, cdur in cats_old
+    ]
     notify_urls = re.findall(r"Notification sent successfully for (\S+)", raw)
 
     m_sum = re.search(r"Total URLs:\s*(\d+)\s*\n\s*Successful:\s*(\d+)\s*\n\s*Failed:\s*(\d+)\s*\n\s*Changed:\s*(\d+)", raw)
-    total_urls = int(m_sum.group(1)) if m_sum else len(cats)
-    succ_urls = int(m_sum.group(2)) if m_sum else len(cats)
+    total_urls = int(m_sum.group(1)) if m_sum else len(parsed_cats)
+    succ_urls = int(m_sum.group(2)) if m_sum else len(parsed_cats)
     failed_urls = int(m_sum.group(3)) if m_sum else 0
 
     if exit_code not in (None, 0) or failed_urls > 0:
@@ -369,12 +387,10 @@ def _parse_tlh_block(block, run_id):
             "raw": raw,
         }
 
-    total_items = sum(int(curr) for _, _, _, _, curr, _, _ in cats)
+    total_items = sum(c_i for _, _, _, _, c_i, _, _ in parsed_cats)
     cat_lines = []
     changed_cats = []
-    for name, url, st, prev, curr, chg, cdur in cats:
-        p_i, c_i = int(prev), int(curr)
-        is_chg = ("Yes" in chg) or (p_i != c_i)
+    for name, url, st, p_i, c_i, is_chg, cdur in parsed_cats:
         if is_chg:
             diff = c_i - p_i
             sign = "+" if diff > 0 else ""
@@ -397,12 +413,11 @@ def _parse_tlh_block(block, run_id):
 
         push_blocks = []
         for n, url, p_i, c_i, diff in changed_cats:
-            sign = "+" if diff >= 0 else "-"
+            sign = "+" if diff > 0 else ""
             push_blocks.append(
                 f"### {n} 产品数量变化通知\n"
                 f"时间：{end_time.replace('-', '/')}\n"
-                f"之前：{p_i} 现在：{c_i}\n"
-                f"变化：({sign} {abs(diff)})\n"
+                f"变化：{p_i} -> {c_i} ({sign}{diff})\n"
                 f"链接：{url}"
             )
         fields = [
@@ -431,7 +446,7 @@ def _parse_tlh_block(block, run_id):
         "time": start_time[11:],
         "full_time": start_time,
         "status": "ok",
-        "summary": f"{succ_urls}/{total_urls} URLs · {total_items} items" if cats else "Completed",
+        "summary": f"{succ_urls}/{total_urls} URLs · {total_items} items" if parsed_cats else "Completed",
         "tag": "No change",
         "dur": dur_str,
         "dur_val": dur_val,

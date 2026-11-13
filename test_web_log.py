@@ -58,7 +58,20 @@ info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "END-HOKA ONE ONE: 0 → 16 (+16)")
         self.assertIn("END-HOKA ONE ONE 产品数量变化通知", runs[0]["push_preview"])
-        self.assertIn("之前：0 现在：16", runs[0]["push_preview"])
+        self.assertIn("变化：0 -> 16 (+16)", runs[0]["push_preview"])
+
+    def test_parse_end_monitor_compact_log_format(self):
+        sample = """==================== [2026-11-13 09:30:01] Crawler End Started ====================
+[END-Montane] Check complete. 变化: 41 -> 41 (0)
+[END-Arcteryx] Check complete. 变化: 15 -> 14 (-1)
+info: 发送通知到: https://oapi.dingtalk.com/robot/send?access_token=xxx
+==================== [2026-11-13 09:30:03] Finished (Exit: 0) ===================="""
+
+        runs, _ = web_log.parse_log_runs("end", sample)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["status"], "push")
+        self.assertEqual(runs[0]["summary"], "END-Arcteryx: 15 → 14 (-1)")
+        self.assertIn("变化：15 -> 14 (-1)", runs[0]["push_preview"])
 
     def test_parse_thelasthunt_runs(self):
         sample = """==================== [2026-11-13 09:00:01] TheLastHunt Started ====================
@@ -98,7 +111,34 @@ Changed: 1
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "Patagonia Products: 144 → 145 (+1)")
         self.assertIn("Patagonia Products: 144 -> 145 (+1) [1401ms]", runs[0]["fields"][1][1])
-        self.assertIn("之前：144 现在：145", runs[0]["push_preview"])
+        self.assertIn("变化：144 -> 145 (+1)", runs[0]["push_preview"])
+
+    def test_parse_thelasthunt_compact_log_format(self):
+        sample = """==================== [2026-11-13 09:30:01] Scrape Started ====================
+info: Notification sent successfully for https://www.thelasthunt.com/c/icebreaker
+1. Patagonia Products
+   URL: https://www.thelasthunt.com/c/patagonia
+   Status: ✅ Success
+   变化: 145 -> 145 (0)
+   Duration: 347ms
+
+2. Icebreaker Products
+   URL: https://www.thelasthunt.com/c/icebreaker
+   Status: ✅ Success
+   变化: 62 -> 61 (-1)
+   Duration: 2017ms
+Total URLs: 2
+Successful: 2
+Failed: 0
+Changed: 1
+==================== [2026-11-13 09:30:04] Finished (Exit: 0) ===================="""
+
+        runs, _ = web_log.parse_log_runs("thelasthunt", sample)
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0]["status"], "push")
+        self.assertEqual(runs[0]["summary"], "Icebreaker Products: 62 → 61 (-1)")
+        self.assertIn("Icebreaker Products: 62 -> 61 (-1) [2017ms]", runs[0]["fields"][1][1])
+        self.assertIn("变化：62 -> 61 (-1)", runs[0]["push_preview"])
 
 
 if __name__ == "__main__":

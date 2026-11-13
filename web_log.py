@@ -1206,6 +1206,47 @@ HTML_PAGE = """<!DOCTYPE html>
     .logs-scroll::-webkit-scrollbar-thumb:hover {
       background: var(--scrollbar-thumb-hover);
     }
+    @media (max-width: 639px) {
+      html.logs-active,
+      body.logs-active {
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+      }
+      body.logs-active > main {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+      }
+      body.logs-active #view-logs:not(.hidden) {
+        flex: 1;
+        min-height: 0;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      body.logs-active #view-logs > .surface-card {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      body.logs-active #runs-list {
+        flex: 1;
+        min-height: 0;
+        max-height: none !important;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+      }
+      body.logs-active #back-to-top {
+        display: none !important;
+      }
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -1272,7 +1313,7 @@ HTML_PAGE = """<!DOCTYPE html>
     <div id="view-logs" class="hidden max-w-5xl mx-auto space-y-3.5">
 
       <!-- 项目 Tab + 过滤器（同一行，无数量徽章） -->
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center justify-between gap-2 shrink-0">
         <div class="flex items-center gap-1 sm:gap-1.5 shrink-0" id="project-tabs">
           <button class="pill-btn project-tab-btn active px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end70" onclick="switchProject('end70')">End70</button>
           <button class="pill-btn project-tab-btn px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-medium" data-project="end" onclick="switchProject('end')">End</button>
@@ -1288,7 +1329,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
       <!-- 结构化运行流水表 -->
       <div class="surface-card rounded-2xl overflow-hidden">
-        <div class="px-3.5 sm:px-4 py-2 flex items-center justify-between gap-2 text-xs" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
+        <div class="px-3.5 sm:px-4 py-2 flex items-center justify-between gap-2 text-xs shrink-0" style="border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary);">
           <span class="font-medium shrink-0">Runs <span class="hidden sm:inline font-normal">(Click row to expand rich details &amp; alert payload)</span></span>
           <div class="flex items-center gap-2 sm:gap-3 shrink-0">
             <div class="inline-flex items-center gap-0.5 sm:gap-1" aria-label="Page Size">
@@ -1311,9 +1352,8 @@ HTML_PAGE = """<!DOCTYPE html>
           <div class="px-4 py-8 text-center text-xs" style="color: var(--text-muted);">Loading execution history...</div>
         </div>
 
-        <div id="runs-pagination" class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs" style="border-top: 1px solid var(--border-subtle); color: var(--text-secondary);">
-          <span id="page-summary" class="mono">0–0 / 0</span>
-          <div id="page-controls" class="flex items-center gap-1"></div>
+        <div id="runs-pagination" class="px-3.5 sm:px-4 py-2 flex items-center justify-center text-xs shrink-0" style="border-top: 1px solid var(--border-subtle); color: var(--text-secondary);">
+          <div id="page-controls" class="flex items-center justify-center gap-1 flex-wrap"></div>
         </div>
       </div>
 
@@ -1403,12 +1443,16 @@ HTML_PAGE = """<!DOCTYPE html>
 
     function switchMainView(view) {
       currentMainView = view;
-      document.getElementById('view-products').classList.toggle('hidden', view !== 'products');
-      document.getElementById('view-logs').classList.toggle('hidden', view !== 'logs');
-      document.getElementById('nav-btn-products').classList.toggle('active', view === 'products');
-      document.getElementById('nav-btn-logs').classList.toggle('active', view === 'logs');
+      const isLogs = view === 'logs';
+      document.documentElement.classList.toggle('logs-active', isLogs);
+      document.body.classList.toggle('logs-active', isLogs);
+      document.getElementById('view-products').classList.toggle('hidden', isLogs);
+      document.getElementById('view-logs').classList.toggle('hidden', !isLogs);
+      document.getElementById('nav-btn-products').classList.toggle('active', !isLogs);
+      document.getElementById('nav-btn-logs').classList.toggle('active', isLogs);
       window.location.hash = view;
-      if (view === 'logs') {
+      if (isLogs) {
+        if (window.innerWidth < 640 && window.scrollY > 0) window.scrollTo(0, 0);
         syncLogsScrollMaxHeight();
         fetchLogStatus();
       }
@@ -1473,25 +1517,19 @@ HTML_PAGE = """<!DOCTYPE html>
     function syncLogsScrollMaxHeight() {
       const listEl = document.getElementById('runs-list');
       if (!listEl || listEl.offsetParent === null) return;
+      if (window.innerWidth < 640) {
+        // 手机端完全交给 CSS 100dvh Flexbox 撑满剩余视口高度，彻底移除外层滚动
+        listEl.style.maxHeight = '';
+        return;
+      }
       const firstRow = listEl.querySelector('.run-row');
       if (firstRow) {
         const h = firstRow.getBoundingClientRect().height;
         if (h > 0) cachedRunRowHeight = h;
       }
       if (cachedRunRowHeight > 0) {
-        // 桌面端以 20 条未展开日志的总高度为上限；手机端限制在一屏剩余视口高度内，保证默认 20 条即可在日志区内部流畅滚动
-        const rows20Height = Math.ceil(cachedRunRowHeight * 20 + 20);
-        if (window.innerWidth < 640) {
-          const rect = listEl.getBoundingClientRect();
-          const pagEl = document.getElementById('runs-pagination');
-          const pagHeight = pagEl ? Math.ceil(pagEl.getBoundingClientRect().height) : 44;
-          const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight || 700;
-          const docTop = Math.max(0, rect.top + window.scrollY);
-          const viewportAvailable = Math.max(240, Math.floor(vh - docTop - pagHeight - 18));
-          listEl.style.maxHeight = `${Math.min(rows20Height, viewportAvailable)}px`;
-        } else {
-          listEl.style.maxHeight = `${rows20Height}px`;
-        }
+        // 桌面端保持以 20 条未展开日志的总高度为上限
+        listEl.style.maxHeight = `${Math.ceil(cachedRunRowHeight * 20 + 20)}px`;
       }
     }
     const runRowResizeObserver = typeof ResizeObserver !== 'undefined'
@@ -1506,22 +1544,19 @@ HTML_PAGE = """<!DOCTYPE html>
       if (observedRunRow) runRowResizeObserver.observe(observedRunRow);
     }
     window.addEventListener('resize', syncLogsScrollMaxHeight);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', syncLogsScrollMaxHeight);
-    }
 
-    function renderPagination(totalItems, totalPages, startIdx, endIdx) {
-      const summaryEl = document.getElementById('page-summary');
+    function renderPagination(totalItems, totalPages) {
+      const pagEl = document.getElementById('runs-pagination');
       const controlsEl = document.getElementById('page-controls');
-      if (!summaryEl || !controlsEl) return;
+      if (!controlsEl) return;
 
       if (totalItems === 0) {
-        summaryEl.textContent = '0–0 / 0';
         controlsEl.innerHTML = '';
+        if (pagEl) pagEl.classList.add('hidden');
         return;
       }
+      if (pagEl) pagEl.classList.remove('hidden');
 
-      summaryEl.textContent = `${startIdx + 1}–${endIdx} / ${totalItems} · Page ${currentPage}/${totalPages}`;
       const buttons = [];
       const prevDisabled = currentPage <= 1;
       buttons.push(
@@ -1546,7 +1581,7 @@ HTML_PAGE = """<!DOCTYPE html>
       const listEl = document.getElementById('runs-list');
       if (filtered.length === 0) {
         listEl.innerHTML = `<div class="px-4 py-8 text-center text-xs" style="color: var(--text-muted);">No matching runs</div>`;
-        renderPagination(0, 1, 0, 0);
+        renderPagination(0, 1);
         return;
       }
 
@@ -1641,7 +1676,7 @@ HTML_PAGE = """<!DOCTYPE html>
       syncLogsScrollMaxHeight();
       observeFirstRunRow();
       requestAnimationFrame(syncLogsScrollMaxHeight);
-      renderPagination(filtered.length, totalPages, startIdx, endIdx);
+      renderPagination(filtered.length, totalPages);
       listEl.scrollTop = resetScroll ? 0 : prevScrollTop;
     }
 

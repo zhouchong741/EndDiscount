@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import subprocess
 import threading
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlsplit
 
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 ISO_UTC_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z")
@@ -16,6 +23,24 @@ RUN_END_RE = re.compile(r"^=+\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+Fi
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HOST = "127.0.0.1"
 PORT = 8088
+
+SESSION_COOKIE_NAME = "dh_session"
+SESSION_TTL_SECONDS = 30 * 24 * 3600
+_DEFAULT_SESSION_SECRET = secrets.token_hex(32)
+_LOGIN_FAILURES = {}
+_LOGIN_LOCK = threading.Lock()
+_CONFIG_LOCK = threading.Lock()
+
+END_ALGOLIA_APP_ID = os.getenv("END_ALGOLIA_APP_ID", "7Q9DS9O2PB")
+END_ALGOLIA_API_KEY = os.getenv("END_ALGOLIA_API_KEY", "1def7e2b2b12cd087ca4d8dabe187edb")
+END_ALGOLIA_INDEX = os.getenv("END_ALGOLIA_INDEX", "shopify_products_china_en")
+END_MENS_SALE_ID = "696175427922"
+END_WOMENS_SALE_ID = "696221991250"
+
+TLH_ALGOLIA_APP_ID = os.getenv("TLH_ALGOLIA_APP_ID", "2YG4O6L95L")
+TLH_ALGOLIA_API_KEY = os.getenv("TLH_ALGOLIA_API_KEY", "e8b31524fd0d708f603240f2bfaec48a")
+TLH_ALGOLIA_INDEX = os.getenv("TLH_ALGOLIA_INDEX", "PRODUCTS_TLH_en-CA")
+TLH_DEFAULT_XPATH = '//*[@id="product-listing"]/div[1]/div[1]/div[1]/span/p'
 
 PROJECTS_CONFIG = {
     "end70": {
@@ -34,6 +59,7 @@ PROJECTS_CONFIG = {
         "badge": "Node.js",
         "log_file": "/var/log/crawler-end.log",
         "run_script": "/opt/crawler/End/run_cron.sh",
+        "sites_file": os.getenv("END_SITES_FILE", "/opt/crawler/End/sites.json"),
         "data_dir": "/opt/crawler/End/data",
         "cron_schedule": "Every 30m",
         "default_sub": "Brand Monitor",
@@ -44,6 +70,7 @@ PROJECTS_CONFIG = {
         "badge": "Node.js",
         "log_file": "/var/log/crawler-thelasthunt.log",
         "run_script": "/opt/crawler/TheLastHunt/run_cron.sh",
+        "config_file": os.getenv("TLH_CONFIG_FILE", "/opt/crawler/TheLastHunt/config.json"),
         "data_dir": "/opt/crawler/TheLastHunt/data",
         "cron_schedule": "Every 30m",
         "default_sub": "Outdoor Brands",
@@ -307,7 +334,18 @@ def _parse_end70_block(block, run_id, prev_counts=None):
 
 
 def _get_end_brand_url(brand_name):
-    """获取 End 品牌对应的监控链接，优先从历史数据读取并回退标准 URL。"""
+    """获取 End 品牌对应的监控链接，优先从 sites.json 或历史数据读取并回退标准 URL。"""
+    sites_file = PROJECTS_CONFIG["end"].get("sites_file")
+    if sites_file and os.path.exists(sites_file):
+        try:
+            with open(sites_file, "r", encoding="utf-8") as f:
+                sites = json.load(f)
+            if isinstance(sites, list):
+                for item in sites:
+                    if isinstance(item, dict) and item.get("name") in (f"END-{brand_name}", brand_name) and item.get("url"):
+                        return item["url"]
+        except Exception:
+            pass
     data_dir = PROJECTS_CONFIG["end"].get("data_dir")
     if data_dir:
         hist_file = os.path.join(data_dir, f"history-END-{brand_name}.json")
@@ -713,6 +751,831 @@ def trigger_scrape_background(project_key):
     return True, f"{cfg['name']} triggered"
 
 
+# ========================= Admin Auth & Session =========================
+
+def get_admin_credentials():
+    return os.getenv("ADMIN_USERNAME", "admin"), os.getenv("ADMIN_PASSWORD", "")
+
+
+def _get_session_secret():
+    return (os.getenv("SESSION_SECRET") or _DEFAULT_SESSION_SECRET).encode("utf-8")
+
+
+def make_session_token(username, now_ts=None):
+    now_i = int(now_ts if now_ts is not None else time.time())
+    exp = now_i + SESSION_TTL_SECONDS
+    payload = f"{username}:{exp}"
+    sig = hmac.new(_get_session_secret(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}:{sig}"
+
+
+def verify_session_token(token, now_ts=None):
+    if not token or not isinstance(token, str):
+        return False
+    parts = token.split(":")
+    if len(parts) != 3:
+        return False
+    username, exp_str, sig = parts
+    expected_user, expected_pass = get_admin_credentials()
+    if not expected_pass or not hmac.compare_digest(username, expected_user):
+        return False
+    try:
+        exp = int(exp_str)
+    except ValueError:
+        return False
+    now_i = int(now_ts if now_ts is not None else time.time())
+    if exp <= now_i:
+        return False
+    payload = f"{username}:{exp}"
+    expected_sig = hmac.new(_get_session_secret(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, expected_sig)
+
+
+def extract_client_ip(headers, client_address):
+    if headers:
+        real_ip = headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip.strip()
+        xff = headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+    return client_address[0] if client_address else "unknown"
+
+
+def check_rate_limit(ip, now_ts=None):
+    now_f = float(now_ts if now_ts is not None else time.time())
+    with _LOGIN_LOCK:
+        entry = _LOGIN_FAILURES.get(ip)
+        if not entry:
+            return True, 0
+        locked_until = entry.get("locked_until", 0)
+        if locked_until > now_f:
+            return False, int(locked_until - now_f) + 1
+        return True, 0
+
+
+def record_login_result(ip, success, now_ts=None):
+    now_f = float(now_ts if now_ts is not None else time.time())
+    with _LOGIN_LOCK:
+        if success:
+            _LOGIN_FAILURES.pop(ip, None)
+            return
+        entry = _LOGIN_FAILURES.get(ip, {"count": 0, "locked_until": 0})
+        if entry.get("locked_until", 0) <= now_f and entry.get("count", 0) >= 5:
+            entry = {"count": 0, "locked_until": 0}
+        entry["count"] = entry.get("count", 0) + 1
+        if entry["count"] >= 5:
+            entry["locked_until"] = now_f + 60
+        _LOGIN_FAILURES[ip] = entry
+
+
+def verify_admin_login(username, password, ip="unknown", now_ts=None):
+    allowed, wait_sec = check_rate_limit(ip, now_ts=now_ts)
+    if not allowed:
+        return False, f"Too many failed attempts. Retry in {wait_sec}s.", 429
+    expected_user, expected_pass = get_admin_credentials()
+    if not expected_pass:
+        return False, "Server ADMIN_PASSWORD is not configured.", 503
+    ok_user = hmac.compare_digest(str(username or ""), expected_user)
+    ok_pass = hmac.compare_digest(str(password or ""), expected_pass)
+    if ok_user and ok_pass:
+        record_login_result(ip, True, now_ts=now_ts)
+        return True, make_session_token(expected_user, now_ts=now_ts), 200
+    record_login_result(ip, False, now_ts=now_ts)
+    return False, "Invalid username or password.", 401
+
+
+# ========================= Monitor Config Management =========================
+
+def _atomic_write_json(file_path, data):
+    parent = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(parent, exist_ok=True)
+    tmp_path = f"{file_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp_path, file_path)
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def _safe_unlink_in_dir(data_dir, filename):
+    if not data_dir or not filename:
+        return False
+    safe_name = os.path.basename(filename)
+    if safe_name != filename or safe_name in (".", ".."):
+        return False
+    dir_real = os.path.realpath(data_dir)
+    target = os.path.realpath(os.path.join(dir_real, safe_name))
+    if not target.startswith(dir_real + os.sep):
+        return False
+    if os.path.exists(target) and os.path.isfile(target):
+        os.unlink(target)
+        return True
+    return False
+
+
+def _end_history_filename(name):
+    return f"history-{os.path.basename(str(name).strip())}.json"
+
+
+def _tlh_history_filename(name):
+    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", re.sub(r"\s+", "-", str(name))).lower()
+    return f"{sanitized}.json" if sanitized else ""
+
+
+def _read_end_sites():
+    sites_file = PROJECTS_CONFIG["end"]["sites_file"]
+    if not os.path.exists(sites_file):
+        return []
+    with open(sites_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data if isinstance(data, list) else []
+
+
+def _read_tlh_config():
+    cfg_file = PROJECTS_CONFIG["thelasthunt"]["config_file"]
+    if not os.path.exists(cfg_file):
+        return {"monitoring_urls": []}
+    with open(cfg_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        return {"monitoring_urls": []}
+    if not isinstance(data.get("monitoring_urls"), list):
+        data["monitoring_urls"] = []
+    return data
+
+
+def _read_end_cached_count(name):
+    data_dir = PROJECTS_CONFIG["end"].get("data_dir")
+    if not data_dir:
+        return None
+    hist_path = os.path.join(data_dir, _end_history_filename(name))
+    if not os.path.exists(hist_path):
+        return None
+    try:
+        with open(hist_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+        if isinstance(records, list) and records and isinstance(records[-1], dict):
+            return records[-1].get("productCount")
+    except Exception:
+        return None
+    return None
+
+
+def _read_tlh_cached_count(name):
+    data_dir = PROJECTS_CONFIG["thelasthunt"].get("data_dir")
+    fname = _tlh_history_filename(name)
+    if not data_dir or not fname:
+        return None
+    hist_path = os.path.join(data_dir, fname)
+    if not os.path.exists(hist_path):
+        return None
+    try:
+        with open(hist_path, "r", encoding="utf-8") as f:
+            record = json.load(f)
+        if isinstance(record, dict):
+            return record.get("product_count")
+    except Exception:
+        return None
+    return None
+
+
+def _detect_end_scope(url, item=None):
+    if isinstance(item, dict) and item.get("scope") == "all":
+        return "All Store"
+    path = urlsplit(url).path.rstrip("/")
+    if path in ("/en-cn/collections/mens-sale", "/collections/mens-sale"):
+        return "Men's Sale"
+    if path in ("/en-cn/collections/womens-sale", "/collections/womens-sale"):
+        return "Women's Sale"
+    return "All Store"
+
+
+def list_monitors(project_key):
+    if project_key == "end":
+        items = []
+        for item in _read_end_sites():
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name", "")
+            url = item.get("url", "")
+            items.append({
+                "name": name,
+                "url": url,
+                "vendor": item.get("vendor") or parse_qs(urlsplit(url).query).get("refinementList[vendor][0]", [""])[0],
+                "scope": _detect_end_scope(url, item),
+                "count": _read_end_cached_count(name),
+            })
+        return items
+    if project_key == "thelasthunt":
+        cfg = _read_tlh_config()
+        items = []
+        for item in cfg.get("monitoring_urls", []):
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name", "")
+            url = item.get("url", "")
+            items.append({
+                "name": name,
+                "url": url,
+                "scope": "TLH",
+                "count": _read_tlh_cached_count(name),
+            })
+        return items
+    raise ValueError(f"Unsupported project for monitors: {project_key}")
+
+
+def _post_json(url, payload, headers=None, timeout=10):
+    body = json.dumps(payload).encode("utf-8")
+    req_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if headers:
+        req_headers.update(headers)
+    req = urllib.request.Request(url, data=body, headers=req_headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _fetch_text(url, timeout=10):
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8", errors="ignore")
+
+
+def _query_end_algolia(requests_list):
+    endpoint = f"https://{END_ALGOLIA_APP_ID.lower()}-3.algolianet.com/1/indexes/*/queries"
+    return _post_json(
+        endpoint,
+        {"requests": requests_list},
+        headers={
+            "X-Algolia-Application-Id": END_ALGOLIA_APP_ID,
+            "X-Algolia-API-Key": END_ALGOLIA_API_KEY,
+        },
+    ).get("results", [])
+
+
+def _query_tlh_algolia(requests_list):
+    endpoint = f"https://{TLH_ALGOLIA_APP_ID.lower()}-dsn.algolia.net/1/indexes/*/queries"
+    return _post_json(
+        endpoint,
+        {"requests": requests_list},
+        headers={
+            "X-Algolia-Application-Id": TLH_ALGOLIA_APP_ID,
+            "X-Algolia-API-Key": TLH_ALGOLIA_API_KEY,
+        },
+    ).get("results", [])
+
+
+def _normalize_key(text):
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def _end_vendor_count(vendor, scope="all"):
+    if scope == "mens-sale":
+        filters = f'collection_ids:"{END_MENS_SALE_ID}" AND inventory_available:true'
+    elif scope == "womens-sale":
+        filters = f'collection_ids:"{END_WOMENS_SALE_ID}" AND inventory_available:true'
+    else:
+        filters = "inventory_available:true"
+    params = urlencode({
+        "query": "",
+        "filters": filters,
+        "facetFilters": json.dumps([[f"vendor:{vendor}"]]),
+        "distinct": "true",
+        "hitsPerPage": "0",
+        "analytics": "false",
+        "clickAnalytics": "false",
+        "facetingAfterDistinct": "false",
+    })
+    results = _query_end_algolia([{"indexName": END_ALGOLIA_INDEX, "params": params}])
+    res = results[0] if results else {}
+    return int(res.get("nbHits", 0))
+
+
+def _search_end_vendors(query_text):
+    params = urlencode({
+        "query": "",
+        "hitsPerPage": "0",
+        "distinct": "true",
+        "filters": "inventory_available:true",
+        "facets": json.dumps(["vendor"]),
+        "maxValuesPerFacet": "1000",
+    })
+    results = _query_end_algolia([{"indexName": END_ALGOLIA_INDEX, "params": params}])
+    facets = (results[0] if results else {}).get("facets", {}).get("vendor", {})
+    norm_q = _normalize_key(query_text)
+    lower_q = query_text.strip().lower()
+    exact = None
+    candidates = []
+    for vendor, cnt in facets.items():
+        if vendor.lower() == lower_q or (norm_q and _normalize_key(vendor) == norm_q):
+            if exact is None or cnt > exact[1]:
+                exact = (vendor, int(cnt))
+        if lower_q in vendor.lower() or (norm_q and norm_q in _normalize_key(vendor)):
+            candidates.append({"vendor": vendor, "count": int(cnt)})
+    candidates.sort(key=lambda x: (-x["count"], x["vendor"].lower()))
+    return exact, candidates[:8]
+
+
+def _build_tlh_algolia_params(url):
+    parsed = urlsplit(url)
+    qs = parse_qs(parsed.query)
+    filters = []
+    facet_filters = []
+    m_cat = re.search(r"/c/([^/?#]+)", parsed.path)
+    if m_cat:
+        filters.append(f"categories: {m_cat.group(1)}")
+    query = qs.get("query", [""])[0]
+    brand_param = qs.get("brand_name", [""])[0]
+    if brand_param:
+        brands = [b.strip() for b in brand_param.split(",") if b.strip()]
+        if brands:
+            facet_filters.append([f"attributes.brand_name: {b}" for b in brands])
+    size_param = qs.get("size_1", [""])[0]
+    if size_param:
+        sizes = [s.strip() for s in size_param.split(",") if s.strip()]
+        if sizes:
+            facet_filters.append([f"attributes.size_1: {s}" for s in sizes])
+    disc_param = qs.get("discounted_percent", [""])[0]
+    if disc_param:
+        m_disc = re.search(r"(\d+)", disc_param)
+        if m_disc:
+            filters.append(f"discounted_percent>={m_disc.group(1)}")
+    if not filters and not facet_filters and not query:
+        return None
+    p = {"hitsPerPage": "0", "analytics": "false", "clickAnalytics": "false"}
+    if query:
+        p["query"] = query
+    if filters:
+        p["filters"] = " AND ".join(filters)
+    if facet_filters:
+        p["facetFilters"] = json.dumps(facet_filters)
+    return urlencode(p)
+
+
+def _preview_end_target(raw_input, custom_name=""):
+    text = str(raw_input or "").strip()
+    if not text:
+        raise ValueError("Please enter an END URL or brand name.")
+
+    is_url = text.lower().startswith(("http://", "https://"))
+    if is_url:
+        parsed = urlsplit(text)
+        if parsed.scheme != "https" or parsed.netloc.lower() != "www.endclothing.com":
+            raise ValueError("END URL must use https://www.endclothing.com/...")
+        clean_path = parsed.path.rstrip("/")
+        if clean_path in ("/en-cn/collections/mens-sale", "/collections/mens-sale"):
+            scope, scope_label = "mens-sale", "Men's Sale"
+        elif clean_path in ("/en-cn/collections/womens-sale", "/collections/womens-sale"):
+            scope, scope_label = "womens-sale", "Women's Sale"
+        else:
+            scope, scope_label = "all", "All Store"
+
+        qs = parse_qs(parsed.query)
+        vendor = qs.get("refinementList[vendor][0]", [""])[0].strip()
+        if not vendor:
+            m_slug = re.search(r"/(?:brands|collections)/([^/?#]+)", clean_path)
+            if not m_slug:
+                raise ValueError("Cannot detect brand from END URL. Use a brand page or ?refinementList[vendor][0]=... URL.")
+            slug = m_slug.group(1)
+            for prefix in ("mens-sale-", "womens-sale-", "sale-", "mens-", "womens-"):
+                if slug.startswith(prefix) and len(slug) > len(prefix):
+                    slug = slug[len(prefix):]
+                    break
+            exact, candidates = _search_end_vendors(slug.replace("-", " "))
+            if not exact:
+                return {
+                    "valid": False,
+                    "project": "end",
+                    "message": f'Could not find exact END vendor for "{m_slug.group(1)}". Pick a matched brand below:',
+                    "candidates": [
+                        {
+                            "label": f"{c['vendor']} ({c['count']})",
+                            "input": c["vendor"],
+                            "count": c["count"],
+                        }
+                        for c in candidates
+                    ],
+                }
+            vendor = exact[0]
+
+        count = _end_vendor_count(vendor, scope=scope)
+        default_name = f"END-{vendor}" if scope == "mens-sale" else (f"END-{vendor} (Women)" if scope == "womens-sale" else f"END-{vendor} (All)")
+        name = custom_name.strip() or default_name
+        if not name.startswith("END-"):
+            name = f"END-{name}"
+        return {
+            "valid": True,
+            "project": "end",
+            "name": name,
+            "url": text,
+            "vendor": vendor,
+            "scope": "all" if scope == "all" else scope,
+            "scope_label": scope_label,
+            "matched_count": count,
+            "candidates": [],
+            "message": f"Matched {vendor} ({scope_label}): {count} items",
+        }
+
+    # 输入品牌名 -> 查 END 全站品牌
+    exact, candidates = _search_end_vendors(text)
+    if not exact:
+        return {
+            "valid": False,
+            "project": "end",
+            "message": f'No exact END vendor matched "{text}".' + (" Select a candidate below:" if candidates else " Try another spelling or paste the full END URL."),
+            "candidates": [
+                {"label": f"{c['vendor']} ({c['count']})", "input": c["vendor"], "count": c["count"]}
+                for c in candidates
+            ],
+        }
+    vendor, count = exact
+    url = f"https://www.endclothing.com/en-cn/collections/all?refinementList%5Bvendor%5D%5B0%5D={quote(vendor, safe='')}"
+    name = custom_name.strip() or f"END-{vendor}"
+    if not name.startswith("END-"):
+        name = f"END-{name}"
+    return {
+        "valid": True,
+        "project": "end",
+        "name": name,
+        "url": url,
+        "vendor": vendor,
+        "scope": "all",
+        "scope_label": "All Store",
+        "matched_count": count,
+        "candidates": [
+            {"label": f"{c['vendor']} ({c['count']})", "input": c["vendor"], "count": c["count"]}
+            for c in candidates if c["vendor"] != vendor
+        ][:5],
+        "message": f"Matched {vendor} (All Store): {count} items",
+    }
+
+
+def _preview_tlh_target(raw_input, custom_name=""):
+    text = str(raw_input or "").strip()
+    if not text:
+        raise ValueError("Please enter a TheLastHunt URL or brand name.")
+
+    is_url = text.lower().startswith(("http://", "https://"))
+    if is_url:
+        parsed = urlsplit(text)
+        if parsed.scheme != "https" or parsed.netloc.lower() != "www.thelasthunt.com":
+            raise ValueError("TLH URL must use https://www.thelasthunt.com/...")
+        params_str = _build_tlh_algolia_params(text)
+        count = None
+        if params_str:
+            res = _query_tlh_algolia([{"indexName": TLH_ALGOLIA_INDEX, "params": params_str}])
+            if res and isinstance(res[0].get("nbHits"), int):
+                count = int(res[0]["nbHits"])
+        if count is None:
+            html = _fetch_text(text)
+            m = re.search(r'"nbHits"\s*:\s*(\d+)', html) or re.search(r"(\d+)\s+products", html, re.I)
+            if not m:
+                raise ValueError("Unable to verify product count from this TLH URL.")
+            count = int(m.group(1))
+        m_cat = re.search(r"/c/([^/?#]+)", parsed.path)
+        fallback_name = (m_cat.group(1).replace("-", " ").title() + " Products") if m_cat else "TLH Custom Monitor"
+        name = custom_name.strip() or fallback_name
+        return {
+            "valid": True,
+            "project": "thelasthunt",
+            "name": name,
+            "url": text,
+            "scope_label": "TLH",
+            "matched_count": count,
+            "candidates": [],
+            "message": f"Verified TLH URL: {count} items",
+        }
+
+    # 输入品牌名 -> 查 TLH Algolia attributes.brand_name
+    facet_params = urlencode({
+        "query": "",
+        "hitsPerPage": "0",
+        "facets": json.dumps(["attributes.brand_name"]),
+        "maxValuesPerFacet": "500",
+    })
+    res = _query_tlh_algolia([{"indexName": TLH_ALGOLIA_INDEX, "params": facet_params}])
+    brands_map = (res[0] if res else {}).get("facets", {}).get("attributes.brand_name", {})
+    norm_q = _normalize_key(text)
+    lower_q = text.lower()
+    exact = None
+    candidates = []
+    for brand_name, cnt in brands_map.items():
+        if brand_name.lower() == lower_q or (norm_q and _normalize_key(brand_name) == norm_q):
+            exact = (brand_name, int(cnt))
+        if lower_q in brand_name.lower() or (norm_q and norm_q in _normalize_key(brand_name)):
+            candidates.append({"brand": brand_name, "count": int(cnt)})
+    candidates.sort(key=lambda x: (-x["count"], x["brand"].lower()))
+
+    if not exact:
+        return {
+            "valid": False,
+            "project": "thelasthunt",
+            "message": f'No exact TLH brand matched "{text}".' + (" Select a candidate below:" if candidates else " Try another spelling or paste the full TLH URL."),
+            "candidates": [
+                {"label": f"{c['brand']} ({c['count']})", "input": c["brand"], "count": c["count"]}
+                for c in candidates[:8]
+            ],
+        }
+
+    brand_name, brand_count = exact
+    slug_dash = re.sub(r"[^a-z0-9]+", "-", brand_name.lower()).strip("-")
+    slug_compact = re.sub(r"[^a-z0-9]+", "", brand_name.lower())
+    chosen_url = f"https://www.thelasthunt.com/c/all?brand_name={quote(brand_name, safe='')}"
+    chosen_count = brand_count
+    for slug in dict.fromkeys([s for s in (slug_dash, slug_compact) if s]):
+        cat_res = _query_tlh_algolia([{"indexName": TLH_ALGOLIA_INDEX, "params": urlencode({"query": "", "hitsPerPage": "0", "filters": f"categories: {slug}"})}])
+        cat_hits = (cat_res[0] if cat_res else {}).get("nbHits")
+        if isinstance(cat_hits, int) and cat_hits > 0:
+            chosen_url = f"https://www.thelasthunt.com/c/{slug}"
+            chosen_count = cat_hits
+            break
+
+    name = custom_name.strip() or f"{brand_name} Products"
+    return {
+        "valid": True,
+        "project": "thelasthunt",
+        "name": name,
+        "url": chosen_url,
+        "scope_label": "TLH",
+        "matched_count": int(chosen_count),
+        "candidates": [
+            {"label": f"{c['brand']} ({c['count']})", "input": c["brand"], "count": c["count"]}
+            for c in candidates if c["brand"] != brand_name
+        ][:5],
+        "message": f"Matched {brand_name}: {chosen_count} items",
+    }
+
+
+def preview_monitor_target(project_key, raw_input, custom_name=""):
+    if project_key == "end":
+        return _preview_end_target(raw_input, custom_name=custom_name)
+    if project_key == "thelasthunt":
+        return _preview_tlh_target(raw_input, custom_name=custom_name)
+    raise ValueError(f"Unsupported project: {project_key}")
+
+
+def add_monitor_item(project_key, payload):
+    name = str(payload.get("name") or "").strip()
+    url = str(payload.get("url") or "").strip()
+    if not name or not url:
+        raise ValueError("Monitor name and url are required.")
+    parsed = urlsplit(url)
+    if project_key == "end":
+        if parsed.scheme != "https" or parsed.netloc.lower() != "www.endclothing.com":
+            raise ValueError("END URL must start with https://www.endclothing.com/")
+        if not name.startswith("END-"):
+            name = f"END-{name}"
+        vendor = str(payload.get("vendor") or "").strip() or parse_qs(parsed.query).get("refinementList[vendor][0]", [""])[0].strip()
+        scope = str(payload.get("scope") or "").strip()
+        with _CONFIG_LOCK:
+            sites = _read_end_sites()
+            for item in sites:
+                if item.get("name", "").lower() == name.lower():
+                    raise ValueError(f'Monitor "{name}" already exists.')
+                if item.get("url") == url:
+                    raise ValueError("This URL is already monitored.")
+            new_entry = {"name": name, "url": url}
+            if vendor:
+                new_entry["vendor"] = vendor
+            if scope:
+                new_entry["scope"] = scope
+            sites.append(new_entry)
+            _atomic_write_json(PROJECTS_CONFIG["end"]["sites_file"], sites)
+        return list_monitors("end")
+
+    if project_key == "thelasthunt":
+        if parsed.scheme != "https" or parsed.netloc.lower() != "www.thelasthunt.com":
+            raise ValueError("TLH URL must start with https://www.thelasthunt.com/")
+        with _CONFIG_LOCK:
+            cfg = _read_tlh_config()
+            urls = cfg["monitoring_urls"]
+            for item in urls:
+                if item.get("name", "").lower() == name.lower():
+                    raise ValueError(f'Monitor "{name}" already exists.')
+                if item.get("url") == url:
+                    raise ValueError("This URL is already monitored.")
+            urls.append({
+                "name": name,
+                "url": url,
+                "xpath": str(payload.get("xpath") or TLH_DEFAULT_XPATH),
+            })
+            _atomic_write_json(PROJECTS_CONFIG["thelasthunt"]["config_file"], cfg)
+        return list_monitors("thelasthunt")
+
+    raise ValueError(f"Unsupported project: {project_key}")
+
+
+def delete_monitor_item(project_key, name="", url=""):
+    target_name = str(name or "").strip()
+    target_url = str(url or "").strip()
+    if not target_name and not target_url:
+        raise ValueError("Monitor name or url is required.")
+
+    if project_key == "end":
+        with _CONFIG_LOCK:
+            sites = _read_end_sites()
+            kept = []
+            removed = []
+            for item in sites:
+                match = (target_name and item.get("name") == target_name) or (target_url and item.get("url") == target_url)
+                if match:
+                    removed.append(item)
+                else:
+                    kept.append(item)
+            if not removed:
+                raise ValueError("Monitor not found.")
+            _atomic_write_json(PROJECTS_CONFIG["end"]["sites_file"], kept)
+            for item in removed:
+                _safe_unlink_in_dir(PROJECTS_CONFIG["end"].get("data_dir"), _end_history_filename(item.get("name", "")))
+        return list_monitors("end"), len(removed)
+
+    if project_key == "thelasthunt":
+        with _CONFIG_LOCK:
+            cfg = _read_tlh_config()
+            urls = cfg["monitoring_urls"]
+            kept = []
+            removed = []
+            for item in urls:
+                match = (target_name and item.get("name") == target_name) or (target_url and item.get("url") == target_url)
+                if match:
+                    removed.append(item)
+                else:
+                    kept.append(item)
+            if not removed:
+                raise ValueError("Monitor not found.")
+            cfg["monitoring_urls"] = kept
+            _atomic_write_json(PROJECTS_CONFIG["thelasthunt"]["config_file"], cfg)
+            for item in removed:
+                _safe_unlink_in_dir(PROJECTS_CONFIG["thelasthunt"].get("data_dir"), _tlh_history_filename(item.get("name", "")))
+        return list_monitors("thelasthunt"), len(removed)
+
+    raise ValueError(f"Unsupported project: {project_key}")
+
+
+LOGIN_HTML_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    try {
+      document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "light dark";
+    } catch (e) {}
+  </script>
+  <title>Discount · Sign In</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg-canvas: light-dark(#f8fafc, #090d16);
+      --bg-surface: light-dark(rgba(255, 255, 255, 0.94), rgba(15, 23, 42, 0.86));
+      --bg-input: light-dark(#ffffff, #111827);
+      --text-primary: light-dark(#0f172a, #f1f5f9);
+      --text-secondary: light-dark(#475569, #94a3b8);
+      --border-subtle: light-dark(#e2e8f0, rgba(51, 65, 85, 0.7));
+      --accent-cyan: light-dark(#0284c7, #38bdf8);
+      --err-text: light-dark(#be123c, #fb7185);
+      --err-bg: light-dark(rgba(225, 29, 72, 0.08), rgba(251, 113, 133, 0.14));
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      padding: 28px 24px;
+      border-radius: 18px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 9999px;
+      background: #10b981;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    .sub { margin: 0 0 22px; font-size: 13px; color: var(--text-secondary); }
+    label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    button {
+      width: 100%;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.65; cursor: not-allowed; }
+    .err {
+      display: none;
+      margin-bottom: 14px;
+      padding: 9px 12px;
+      border-radius: 10px;
+      font-size: 12px;
+      color: var(--err-text);
+      background: var(--err-bg);
+    }
+    .err.show { display: block; }
+  </style>
+</head>
+<body>
+  <form class="card" id="login-form">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>Discount</h1>
+    </div>
+    <p class="sub">Sign in as administrator to continue</p>
+    <div id="err-box" class="err"></div>
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" value="admin" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+    <button type="submit" id="submit-btn">Sign In</button>
+  </form>
+  <script>
+    const form = document.getElementById('login-form');
+    const errBox = document.getElementById('err-box');
+    const submitBtn = document.getElementById('submit-btn');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errBox.classList.remove('show');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in...';
+      try {
+        const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+        const res = await fetch(base + 'api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || ('HTTP ' + res.status));
+        }
+        window.location.reload();
+      } catch (err) {
+        errBox.textContent = err.message || 'Sign in failed';
+        errBox.classList.add('show');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>
+"""
+
+
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -724,7 +1587,7 @@ HTML_PAGE = """<!DOCTYPE html>
       document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem("color-scheme") ?? "light dark";
     } catch (e) {}
   </script>
-  <title>Discount Hub</title>
+  <title>Discount</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
@@ -1256,7 +2119,7 @@ HTML_PAGE = """<!DOCTYPE html>
     <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2">
       <div class="flex items-center gap-2.5">
         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-        <h1 class="text-sm sm:text-base font-bold tracking-tight">Discount Hub</h1>
+        <h1 class="text-sm sm:text-base font-bold tracking-tight">Discount</h1>
       </div>
 
       <div class="flex items-center gap-2 sm:gap-3">
@@ -1270,6 +2133,14 @@ HTML_PAGE = """<!DOCTYPE html>
         <button id="theme-toggle" type="button" class="theme-toggle-btn px-2.5 py-1 sm:py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5" onclick="toggleColorScheme()" aria-label="Toggle color scheme">
           <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
           <span id="theme-toggle-label" class="hidden sm:inline">Dark</span>
+        </button>
+
+        <button id="logout-btn" type="button" class="theme-toggle-btn p-1.5 rounded-xl cursor-pointer inline-flex items-center justify-center" onclick="logoutAdmin()" aria-label="Logout" title="Sign out">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
         </button>
       </div>
     </div>
@@ -1342,8 +2213,16 @@ HTML_PAGE = """<!DOCTYPE html>
               <input type="checkbox" id="auto-refresh-chk" checked onchange="toggleAutoRefresh()" class="rounded">
               <span>Auto<span class="hidden sm:inline"> (5s)</span></span>
             </label>
-            <button id="run-now-btn" onclick="triggerCurrentProjectScrape()" class="btn-primary px-2.5 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-medium cursor-pointer shrink-0">
-              Run Now
+            <button id="manage-monitors-btn" type="button" onclick="openMonitorModal()" aria-label="Manage Monitors" title="Manage Monitors" class="log-ctrl-btn hidden p-1.5 rounded-lg cursor-pointer shrink-0 inline-flex items-center justify-center">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </button>
+            <button id="run-now-btn" type="button" onclick="triggerCurrentProjectScrape()" aria-label="Run Now" title="Run Now" class="btn-primary p-1.5 rounded-lg cursor-pointer shrink-0 inline-flex items-center justify-center">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.14v14l11-7-11-7z"></path>
+              </svg>
             </button>
           </div>
         </div>
@@ -1359,6 +2238,45 @@ HTML_PAGE = """<!DOCTYPE html>
 
     </div>
   </main>
+
+  <!-- 独立服务配置管理弹窗 (End / TLH) -->
+  <div id="monitor-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5" style="background: rgba(2, 6, 23, 0.65); backdrop-filter: blur(4px);" onclick="if(event.target===this) closeMonitorModal()">
+    <div class="surface-card w-full max-w-xl max-h-[86dvh] rounded-2xl flex flex-col overflow-hidden">
+      <div class="px-4 py-3 flex items-center justify-between gap-2 shrink-0" style="border-bottom: 1px solid var(--border-subtle);">
+        <div>
+          <h2 id="monitor-modal-title" class="text-sm font-bold">Manage Monitors</h2>
+          <p id="monitor-modal-sub" class="text-[11px]" style="color: var(--text-secondary);">Add by URL or brand name, verify live count before saving</p>
+        </div>
+        <button type="button" onclick="closeMonitorModal()" aria-label="Close" title="Close" class="log-ctrl-btn p-1.5 rounded-lg cursor-pointer inline-flex items-center justify-center">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="p-4 space-y-3 overflow-y-auto flex-1 min-h-0">
+        <div class="flex items-center gap-2">
+          <input id="monitor-input" type="search" placeholder="Paste URL or type brand (live search)..." class="search-box flex-1 min-w-0 px-3 py-2 text-xs sm:text-sm rounded-xl">
+          <button id="monitor-check-btn" type="button" onclick="previewMonitor({ immediate: true })" aria-label="Check" title="Check" class="btn-primary p-2 rounded-xl cursor-pointer shrink-0 inline-flex items-center justify-center">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div id="monitor-preview-box" class="hidden rounded-xl p-3 text-xs space-y-2" style="background: var(--bg-pill); border: 1px solid var(--border-subtle);"></div>
+
+        <div class="pt-1">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold" style="color: var(--text-secondary);">Configured Monitors (<span id="monitor-list-count">0</span>)</span>
+          </div>
+          <div id="monitor-list" class="space-y-1.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <button id="back-to-top" title="Back to top" aria-label="Back to top">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 15l-6-6-6 6" /></svg>
@@ -1458,13 +2376,261 @@ HTML_PAGE = """<!DOCTYPE html>
       }
     }
 
+    function syncManageButton() {
+      const btn = document.getElementById('manage-monitors-btn');
+      if (!btn) return;
+      const show = currentProject === 'end' || currentProject === 'thelasthunt';
+      btn.classList.toggle('hidden', !show);
+    }
+
     function switchProject(projKey) {
       currentProject = projKey;
       currentPage = 1;
       document.querySelectorAll('#project-tabs .project-tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.project === projKey);
       });
+      syncManageButton();
       fetchLogStatus();
+    }
+    syncManageButton();
+
+    async function logoutAdmin() {
+      try {
+        const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+        await fetch(base + 'api/logout', { method: 'POST' });
+      } catch (e) {}
+      window.location.reload();
+    }
+
+    let pendingMonitorPreview = null;
+    let currentMonitorItems = [];
+    let monitorSearchTimer = null;
+    let monitorAbortCtrl = null;
+
+    const ICON_PLUS = '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>';
+    const ICON_TRASH = '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>';
+    const ICON_PREV = '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+    const ICON_NEXT = '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+    const ICON_SEARCH = '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>';
+    const ICON_SPIN = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="9" opacity="0.25"></circle><path d="M21 12a9 9 0 0 0-9-9" stroke-linecap="round"></path></svg>';
+    const ICON_PLAY = '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v14l11-7-11-7z"></path></svg>';
+    const ICON_CHECK = '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    const ICON_ERROR = '<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+    function apiBase() {
+      return window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
+    }
+
+    function openMonitorModal() {
+      if (currentProject !== 'end' && currentProject !== 'thelasthunt') return;
+      const modal = document.getElementById('monitor-modal');
+      const title = document.getElementById('monitor-modal-title');
+      const sub = document.getElementById('monitor-modal-sub');
+      const inputEl = document.getElementById('monitor-input');
+      const previewBox = document.getElementById('monitor-preview-box');
+
+      title.textContent = currentProject === 'end' ? 'End Monitors' : 'TLH Monitors';
+      sub.textContent = currentProject === 'end'
+        ? 'Paste an END URL or type a brand to search full-store Algolia live'
+        : 'Paste a TheLastHunt URL or type a brand to search live';
+      inputEl.value = '';
+      pendingMonitorPreview = null;
+      if (monitorSearchTimer) clearTimeout(monitorSearchTimer);
+      if (monitorAbortCtrl) { monitorAbortCtrl.abort(); monitorAbortCtrl = null; }
+      previewBox.classList.add('hidden');
+      previewBox.innerHTML = '';
+      modal.classList.remove('hidden');
+      loadMonitorList();
+      setTimeout(() => inputEl.focus(), 50);
+    }
+
+    function closeMonitorModal() {
+      if (monitorSearchTimer) clearTimeout(monitorSearchTimer);
+      if (monitorAbortCtrl) { monitorAbortCtrl.abort(); monitorAbortCtrl = null; }
+      document.getElementById('monitor-modal').classList.add('hidden');
+    }
+
+    function renderMonitorList(items) {
+      currentMonitorItems = Array.isArray(items) ? items : [];
+      document.getElementById('monitor-list-count').textContent = String(currentMonitorItems.length);
+      const listEl = document.getElementById('monitor-list');
+      if (currentMonitorItems.length === 0) {
+        listEl.innerHTML = '<div class="text-xs text-center py-4" style="color: var(--text-muted);">No monitors configured</div>';
+        return;
+      }
+      listEl.innerHTML = currentMonitorItems.map((item, idx) => {
+        const cntText = item.count === null || item.count === undefined ? 'New' : `${item.count} items`;
+        return `
+          <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl" style="background: var(--bg-pill); border: 1px solid var(--border-subtle);">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold truncate">${escapeHtml(item.name)}</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded" style="background: var(--bg-elevated); color: var(--text-secondary);">${escapeHtml(item.scope || '')}</span>
+                <span class="text-[11px] mono" style="color: var(--accent-cyan);">${escapeHtml(cntText)}</span>
+              </div>
+              <div class="text-[11px] truncate mono mt-0.5" style="color: var(--text-muted);" title="${escapeHtml(item.url)}">${escapeHtml(item.url)}</div>
+            </div>
+            <button type="button" onclick="deleteMonitorByIndex(${idx})" aria-label="Delete" title="Delete" class="run-tag-err p-1.5 rounded-lg cursor-pointer shrink-0 inline-flex items-center justify-center">${ICON_TRASH}</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function loadMonitorList() {
+      const listEl = document.getElementById('monitor-list');
+      listEl.innerHTML = '<div class="text-xs text-center py-4" style="color: var(--text-muted);">Loading...</div>';
+      try {
+        const res = await fetch(apiBase() + `api/monitors?project=${currentProject}`);
+        if (res.status === 401) { window.location.reload(); return; }
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        renderMonitorList(data.items);
+      } catch (err) {
+        listEl.innerHTML = `<div class="text-xs text-center py-4 text-rose-500">${escapeHtml(err.message || err)}</div>`;
+      }
+    }
+
+    function pickCandidate(encodedInput) {
+      const val = decodeURIComponent(encodedInput);
+      document.getElementById('monitor-input').value = val;
+      previewMonitor({ immediate: true });
+    }
+
+    function renderMonitorPreview(data) {
+      const box = document.getElementById('monitor-preview-box');
+      box.classList.remove('hidden');
+      const candidatesHtml = (data.candidates && data.candidates.length)
+        ? `<div class="flex flex-wrap gap-1.5 pt-1">${data.candidates.map(c => `<button type="button" onclick="pickCandidate('${encodeURIComponent(c.input)}')" class="log-ctrl-btn px-2 py-0.5 rounded-md text-[11px] cursor-pointer">${escapeHtml(c.label)}</button>`).join('')}</div>`
+        : '';
+
+      if (!data.valid) {
+        pendingMonitorPreview = null;
+        box.innerHTML = `
+          <div class="font-medium" style="color: var(--status-err-text);">${escapeHtml(data.message || 'Invalid target')}</div>
+          ${candidatesHtml}
+        `;
+        return;
+      }
+
+      pendingMonitorPreview = data;
+      box.innerHTML = `
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold" style="color: var(--status-ok-text);">${escapeHtml(data.message)}</div>
+              <div class="text-[11px] mono break-all mt-0.5" style="color: var(--text-muted);">${escapeHtml(data.url)}</div>
+            </div>
+            <button id="monitor-add-btn" type="button" onclick="confirmAddMonitor()" aria-label="Add" title="Add monitor" class="btn-primary p-2 rounded-lg cursor-pointer shrink-0 inline-flex items-center justify-center">${ICON_PLUS}</button>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] shrink-0" style="color: var(--text-secondary);">Name</span>
+            <input id="monitor-name-input" type="text" value="${escapeHtml(data.name || '')}" placeholder="Display name" class="search-box flex-1 min-w-0 px-2.5 py-1 text-xs rounded-lg">
+          </div>
+        </div>
+        ${candidatesHtml}
+      `;
+    }
+
+    async function previewMonitor(opts = {}) {
+      const inputVal = document.getElementById('monitor-input').value.trim();
+      const nameEl = document.getElementById('monitor-name-input');
+      const customName = (!opts.immediate && nameEl) ? nameEl.value.trim() : '';
+      const checkBtn = document.getElementById('monitor-check-btn');
+      const box = document.getElementById('monitor-preview-box');
+
+      if (!inputVal) {
+        pendingMonitorPreview = null;
+        if (opts.silentEmpty) {
+          box.classList.add('hidden');
+          box.innerHTML = '';
+        } else {
+          box.classList.remove('hidden');
+          box.innerHTML = '<div style="color: var(--status-err-text);">Please enter a URL or brand name.</div>';
+        }
+        return;
+      }
+
+      if (monitorAbortCtrl) monitorAbortCtrl.abort();
+      const ctrl = new AbortController();
+      monitorAbortCtrl = ctrl;
+
+      checkBtn.innerHTML = ICON_SPIN;
+      try {
+        const res = await fetch(apiBase() + 'api/monitors/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: currentProject, input: inputVal, name: customName }),
+          signal: ctrl.signal
+        });
+        if (res.status === 401) { window.location.reload(); return; }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        if (monitorAbortCtrl === ctrl) renderMonitorPreview(data);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        pendingMonitorPreview = null;
+        box.classList.remove('hidden');
+        box.innerHTML = `<div style="color: var(--status-err-text);">${escapeHtml(err.message || err)}</div>`;
+      } finally {
+        if (monitorAbortCtrl === ctrl) {
+          checkBtn.innerHTML = ICON_SEARCH;
+        }
+      }
+    }
+
+    async function confirmAddMonitor() {
+      if (!pendingMonitorPreview || !pendingMonitorPreview.valid) return;
+      const addBtn = document.getElementById('monitor-add-btn');
+      const nameEl = document.getElementById('monitor-name-input');
+      const finalName = (nameEl ? nameEl.value.trim() : '') || pendingMonitorPreview.name;
+      if (addBtn) { addBtn.disabled = true; addBtn.innerHTML = ICON_SPIN; }
+      try {
+        const res = await fetch(apiBase() + 'api/monitors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project: currentProject,
+            name: finalName,
+            url: pendingMonitorPreview.url,
+            vendor: pendingMonitorPreview.vendor || '',
+            scope: pendingMonitorPreview.scope || ''
+          })
+        });
+        if (res.status === 401) { window.location.reload(); return; }
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        document.getElementById('monitor-input').value = '';
+        pendingMonitorPreview = null;
+        const box = document.getElementById('monitor-preview-box');
+        box.innerHTML = '<div class="font-medium" style="color: var(--status-ok-text);">Added successfully.</div>';
+        renderMonitorList(data.items);
+        fetchLogStatus(true);
+      } catch (err) {
+        const box = document.getElementById('monitor-preview-box');
+        box.classList.remove('hidden');
+        box.innerHTML = `<div style="color: var(--status-err-text);">${escapeHtml(err.message || err)}</div>`;
+        if (addBtn) { addBtn.disabled = false; addBtn.innerHTML = ICON_PLUS; }
+      }
+    }
+
+    async function deleteMonitorByIndex(idx) {
+      const item = currentMonitorItems[idx];
+      if (!item) return;
+      if (!window.confirm(`Delete "${item.name}" and remove its cached history file?`)) return;
+      try {
+        const res = await fetch(apiBase() + 'api/monitors', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project: currentProject, name: item.name, url: item.url })
+        });
+        if (res.status === 401) { window.location.reload(); return; }
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        renderMonitorList(data.items);
+        fetchLogStatus(true);
+      } catch (err) {
+        alert(err.message || 'Delete failed');
+      }
     }
 
     function setRunFilter(filterVal) {
@@ -1560,7 +2726,7 @@ HTML_PAGE = """<!DOCTYPE html>
       const buttons = [];
       const prevDisabled = currentPage <= 1;
       buttons.push(
-        `<button onclick="setPage(${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} class="log-ctrl-btn px-2.5 py-1 rounded-lg text-xs font-medium ${prevDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Prev</button>`
+        `<button onclick="setPage(${currentPage - 1})" ${prevDisabled ? 'disabled' : ''} aria-label="Previous page" title="Previous page" class="log-ctrl-btn p-1.5 rounded-lg inline-flex items-center justify-center ${prevDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">${ICON_PREV}</button>`
       );
       for (let p = 1; p <= totalPages; p++) {
         buttons.push(
@@ -1569,7 +2735,7 @@ HTML_PAGE = """<!DOCTYPE html>
       }
       const nextDisabled = currentPage >= totalPages;
       buttons.push(
-        `<button onclick="setPage(${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} class="log-ctrl-btn px-2.5 py-1 rounded-lg text-xs font-medium ${nextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">Next</button>`
+        `<button onclick="setPage(${currentPage + 1})" ${nextDisabled ? 'disabled' : ''} aria-label="Next page" title="Next page" class="log-ctrl-btn p-1.5 rounded-lg inline-flex items-center justify-center ${nextDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}">${ICON_NEXT}</button>`
       );
       controlsEl.innerHTML = buttons.join('');
     }
@@ -1684,6 +2850,7 @@ HTML_PAGE = """<!DOCTYPE html>
       try {
         const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
         const res = await fetch(base + `api/status?project=${currentProject}`);
+        if (res.status === 401) { window.location.reload(); return; }
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         latestPayload = data;
@@ -1713,22 +2880,27 @@ HTML_PAGE = """<!DOCTYPE html>
       if (!btn || btn.disabled) return;
       if (triggerResetTimer) clearTimeout(triggerResetTimer);
       btn.disabled = true;
-      btn.textContent = 'Running...';
+      btn.title = 'Running...';
+      btn.innerHTML = ICON_SPIN;
       btn.classList.add('opacity-75');
       try {
         const base = window.location.pathname.endsWith('/') ? window.location.pathname : window.location.pathname + '/';
         const res = await fetch(base + `api/trigger?project=${currentProject}`, { method: 'POST' });
+        if (res.status === 401) { window.location.reload(); return; }
         if (!res.ok) throw new Error('HTTP ' + res.status);
         await res.json();
-        btn.textContent = 'Triggered';
+        btn.title = 'Triggered';
+        btn.innerHTML = ICON_CHECK;
         setTimeout(fetchLogStatus, 1400);
         setTimeout(fetchLogStatus, 3400);
       } catch (err) {
-        btn.textContent = 'Failed';
+        btn.title = 'Failed';
+        btn.innerHTML = ICON_ERROR;
       } finally {
         triggerResetTimer = setTimeout(() => {
           btn.disabled = false;
-          btn.textContent = 'Run Now';
+          btn.title = 'Run Now';
+          btn.innerHTML = ICON_PLAY;
           btn.classList.remove('opacity-75');
         }, 2500);
       }
@@ -1861,6 +3033,31 @@ HTML_PAGE = """<!DOCTYPE html>
     window.addEventListener('scroll', () => backToTopBtn.classList.toggle('show', window.scrollY > 300));
     backToTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
+    const monitorInputEl = document.getElementById('monitor-input');
+    if (monitorInputEl) {
+      monitorInputEl.addEventListener('input', () => {
+        if (monitorSearchTimer) clearTimeout(monitorSearchTimer);
+        const val = monitorInputEl.value.trim();
+        if (!val) {
+          if (monitorAbortCtrl) { monitorAbortCtrl.abort(); monitorAbortCtrl = null; }
+          pendingMonitorPreview = null;
+          const box = document.getElementById('monitor-preview-box');
+          box.classList.add('hidden');
+          box.innerHTML = '';
+          return;
+        }
+        if (val.length < 2 && !val.toLowerCase().startsWith('http')) return;
+        monitorSearchTimer = setTimeout(() => previewMonitor({ silentEmpty: true }), 350);
+      });
+      monitorInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (monitorSearchTimer) clearTimeout(monitorSearchTimer);
+          previewMonitor({ immediate: true });
+        }
+      });
+    }
+
     if (window.location.hash === '#logs') switchMainView('logs');
     else switchMainView('products');
     toggleAutoRefresh();
@@ -1874,18 +3071,76 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def _is_authenticated(self):
+        cookie_hdr = self.headers.get("Cookie", "")
+        if not cookie_hdr:
+            return False
+        jar = SimpleCookie()
+        try:
+            jar.load(cookie_hdr)
+        except Exception:
+            return False
+        morsel = jar.get(SESSION_COOKIE_NAME)
+        return verify_session_token(morsel.value if morsel else "")
+
+    def _send_json(self, status_code, payload, extra_headers=None):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        if extra_headers:
+            for k, v in extra_headers:
+                self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _require_auth(self):
+        if self._is_authenticated():
+            return True
+        self._send_json(401, {"ok": False, "error": "Authentication required"})
+        return False
+
+    def _read_json_body(self, max_bytes=65536):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise ValueError("Invalid Content-Length")
+        if length <= 0 or length > max_bytes:
+            raise ValueError("Invalid request body size")
+        raw = self.rfile.read(length)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except Exception:
+            raise ValueError("Invalid JSON payload")
+        if not isinstance(data, dict):
+            raise ValueError("JSON body must be an object")
+        return data
+
+    def _cookie_attr_suffix(self):
+        proto = (self.headers.get("X-Forwarded-Proto") or "").lower()
+        return "; Secure" if proto == "https" else ""
+
     def do_HEAD(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         if path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
         elif path.endswith("/data.js"):
+            if not self._is_authenticated():
+                self.send_response(401)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.end_headers()
-        elif path.endswith("/api/status"):
+        elif path.endswith("/api/status") or path.endswith("/api/monitors"):
+            if not self._is_authenticated():
+                self.send_response(401)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -1898,12 +3153,21 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
 
         if path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
+            page_html = HTML_PAGE if self._is_authenticated() else LOGIN_HTML_PAGE
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(HTML_PAGE.encode("utf-8"))
+            self.wfile.write(page_html.encode("utf-8"))
 
         elif path.endswith("/data.js"):
+            if not self._is_authenticated():
+                self.send_response(401)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(b"// unauthorized")
+                return
             data_js_path = os.path.join(BASE_DIR, "data.js")
             if os.path.exists(data_js_path):
                 self.send_response(200)
@@ -1919,15 +3183,23 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
                 self.wfile.write("window.products = []; window.updateTime = 'N/A';".encode("utf-8"))
 
         elif path.endswith("/api/status"):
+            if not self._require_auth():
+                return
             query = parse_qs(parsed.query)
             proj = query.get("project", ["end70"])[0]
             data = get_project_status(proj)
+            self._send_json(200, data)
 
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.end_headers()
-            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        elif path.endswith("/api/monitors"):
+            if not self._require_auth():
+                return
+            query = parse_qs(parsed.query)
+            proj = query.get("project", [""])[0]
+            try:
+                items = list_monitors(proj)
+                self._send_json(200, {"ok": True, "project": proj, "items": items})
+            except Exception as err:
+                self._send_json(400, {"ok": False, "error": str(err)})
 
         else:
             self.send_response(404)
@@ -1937,16 +3209,83 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
+        if path.endswith("/api/login"):
+            try:
+                body = self._read_json_body()
+            except ValueError as err:
+                self._send_json(400, {"ok": False, "error": str(err)})
+                return
+            ip = extract_client_ip(self.headers, self.client_address)
+            ok, res_or_token, code = verify_admin_login(body.get("username"), body.get("password"), ip=ip)
+            if not ok:
+                self._send_json(code, {"ok": False, "error": res_or_token})
+                return
+            cookie_val = (
+                f"{SESSION_COOKIE_NAME}={res_or_token}; Path=/; HttpOnly; SameSite=Lax; "
+                f"Max-Age={SESSION_TTL_SECONDS}{self._cookie_attr_suffix()}"
+            )
+            self._send_json(200, {"ok": True}, extra_headers=[("Set-Cookie", cookie_val)])
+            return
+
+        if path.endswith("/api/logout"):
+            cookie_val = (
+                f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; "
+                f"Max-Age=0{self._cookie_attr_suffix()}"
+            )
+            self._send_json(200, {"ok": True}, extra_headers=[("Set-Cookie", cookie_val)])
+            return
+
+        if not self._require_auth():
+            return
+
         if path.endswith("/api/trigger"):
             query = parse_qs(parsed.query)
             proj = query.get("project", ["end70"])[0]
             ok, msg = trigger_scrape_background(proj)
+            self._send_json(200 if ok else 400, {"ok": ok, "message": msg})
 
-            self.send_response(200 if ok else 400)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Access-Control-Allow-Origin", "*")
+        elif path.endswith("/api/monitors/preview"):
+            try:
+                body = self._read_json_body()
+                result = preview_monitor_target(
+                    body.get("project", ""),
+                    body.get("input", ""),
+                    custom_name=body.get("name", ""),
+                )
+                self._send_json(200, result)
+            except Exception as err:
+                self._send_json(400, {"ok": False, "valid": False, "error": str(err)})
+
+        elif path.endswith("/api/monitors"):
+            try:
+                body = self._read_json_body()
+                proj = body.get("project", "")
+                items = add_monitor_item(proj, body)
+                self._send_json(200, {"ok": True, "project": proj, "items": items})
+            except Exception as err:
+                self._send_json(400, {"ok": False, "error": str(err)})
+
+        else:
+            self.send_response(404)
             self.end_headers()
-            self.wfile.write(json.dumps({"ok": ok, "message": msg}, ensure_ascii=False).encode("utf-8"))
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        if not self._require_auth():
+            return
+        if path.endswith("/api/monitors"):
+            try:
+                body = self._read_json_body()
+                proj = body.get("project", "")
+                items, removed_count = delete_monitor_item(
+                    proj,
+                    name=body.get("name", ""),
+                    url=body.get("url", ""),
+                )
+                self._send_json(200, {"ok": True, "project": proj, "removed": removed_count, "items": items})
+            except Exception as err:
+                self._send_json(400, {"ok": False, "error": str(err)})
         else:
             self.send_response(404)
             self.end_headers()

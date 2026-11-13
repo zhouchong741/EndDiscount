@@ -225,15 +225,15 @@ def save_data(products_dict, json_path=OUTPUT_FILE, js_path=DATA_JS_FILE):
 def format_change_desc(old_items, new_items):
     diff = len(new_items) - len(old_items)
     if diff > 0:
-        return f"增加 {diff}"
+        return f"+{diff}"
     if diff < 0:
-        return f"减少 {abs(diff)}"
+        return f"-{abs(diff)}"
     added = len(set(new_items.keys()) - set(old_items.keys()))
     if added > 0:
         return f"上新 {added} / 下架 {added}"
     if old_items != new_items:
         return "价格或信息更新"
-    return "无变化"
+    return "0"
 
 
 def send_dingtalk_notification(total_count, total_desc, men_count, men_desc, women_count, women_desc, webhook=None):

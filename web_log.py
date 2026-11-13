@@ -186,7 +186,7 @@ def _parse_end70_block(block, run_id):
         summary = f"{total} items ({men}M / {women}W)"
         if prev_total is not None and prev_total != total:
             diff = total - prev_total
-            diff_str = f"增加 {diff}" if diff > 0 else f"减少 {abs(diff)}"
+            diff_str = f"+{diff}" if diff > 0 else f"-{abs(diff)}"
             sign = "+" if diff > 0 else ""
             summary = f"{prev_total} → {total} ({sign}{diff} items)"
         else:

@@ -61,7 +61,10 @@ class FastScraperTests(unittest.TestCase):
         a = {("men", "u1"): {"price": 10}}
         b = {("men", "u2"): {"price": 10}}
         c = {("men", "u1"): {"price": 8}}
-        self.assertEqual(scraper.format_change_desc(a, a), "无变化")
+        d = {("men", "u1"): {"price": 10}, ("men", "u2"): {"price": 12}}
+        self.assertEqual(scraper.format_change_desc(a, a), "0")
+        self.assertEqual(scraper.format_change_desc(a, d), "+1")
+        self.assertEqual(scraper.format_change_desc(d, a), "-1")
         self.assertEqual(scraper.format_change_desc(a, b), "上新 1 / 下架 1")
         self.assertEqual(scraper.format_change_desc(a, c), "价格或信息更新")
 
@@ -71,11 +74,11 @@ class FastScraperTests(unittest.TestCase):
             mock_post.return_value = Mock(status_code=200, text='{"errcode":0}')
             ok = scraper.send_dingtalk_notification(
                 total_count=100,
-                total_desc="增加 5",
+                total_desc="+5",
                 men_count=60,
-                men_desc="增加 3",
+                men_desc="+3",
                 women_count=40,
-                women_desc="增加 2",
+                women_desc="+2",
                 webhook="https://example.com/fake_webhook",
             )
             self.assertTrue(ok)
@@ -84,8 +87,8 @@ class FastScraperTests(unittest.TestCase):
             payload = call_kwargs["json"]
             self.assertEqual(payload["msgtype"], "markdown")
             self.assertIn("### End70 产品数量变化通知", payload["markdown"]["text"])
-            self.assertIn("> **Men**：60（增加 3）  \n", payload["markdown"]["text"])
-            self.assertIn("增加 5", payload["markdown"]["text"])
+            self.assertIn("> **Men**：60（+3）  \n", payload["markdown"]["text"])
+            self.assertIn("+5", payload["markdown"]["text"])
 
 
 if __name__ == "__main__":

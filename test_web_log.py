@@ -38,7 +38,7 @@ Complete: total=847 (men=478, women=369) changed=True elapsed=2.25s
         # 倒序：最新在第一条
         self.assertEqual(runs[0]["status"], "push")
         self.assertEqual(runs[0]["summary"], "848 → 847 (-1 items)")
-        self.assertIn("总计：847（减少 1）", runs[0]["push_preview"])
+        self.assertIn("总计：847（-1）", runs[0]["push_preview"])
         self.assertEqual(runs[1]["status"], "ok")
         self.assertEqual(runs[1]["summary"], "848 items (478M / 370W)")
         self.assertEqual(runs[2]["status"], "err")

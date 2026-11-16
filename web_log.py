@@ -5,10 +5,12 @@ import json
 import os
 import re
 import secrets
+import struct
 import subprocess
 import threading
 import time
 import urllib.error
+import zlib
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
@@ -19,6 +21,106 @@ SHANGHAI_TZ = timezone(timedelta(hours=8))
 ISO_UTC_RE = re.compile(r"(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z")
 RUN_START_RE = re.compile(r"^=+\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+.+?\s+Started\s*=+$")
 RUN_END_RE = re.compile(r"^=+\s*\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]\s+Finished\s*\(Exit:\s*(-?\d+)\)\s*=+$")
+
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="dh-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#090d16"/>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="url(#dh-grad)" stroke-width="3"/>
+  <path d="M21 43L43 21" stroke="url(#dh-grad)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="22.5" cy="22.5" r="5.5" fill="#38bdf8"/>
+  <circle cx="41.5" cy="41.5" r="5.5" fill="#818cf8"/>
+  <circle cx="51" cy="13" r="4.5" fill="#10b981"/>
+</svg>
+"""
+FAVICON_SVG_BYTES = FAVICON_SVG.encode("utf-8")
+
+
+def _build_favicon_ico(size=32):
+    """Build a crisp 32x32 PNG-wrapped ICO matching FAVICON_SVG using stdlib only."""
+    def _png_chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    def _dist_seg(px, py, x1, y1, x2, y2):
+        dx, dy = x2 - x1, y2 - y1
+        t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+        return ((px - (x1 + t * dx)) ** 2 + (py - (y1 + t * dy)) ** 2) ** 0.5
+
+    def _blend(dst, src, a):
+        if a <= 0.0:
+            return dst
+        if a >= 1.0:
+            return src
+        return tuple(int(round(dst[i] * (1.0 - a) + src[i] * a)) for i in range(3)) + (
+            min(255, int(round(dst[3] + (255 - dst[3]) * a))),
+        )
+
+    rows = []
+    scale = 64.0 / size
+    for y in range(size):
+        row = bytearray([0])
+        for x in range(size):
+            px = (x + 0.5) * scale
+            py = (y + 0.5) * scale
+            # Rounded square mask (radius 16 on 64x64)
+            cx = max(16.0 - px, 0.0, px - 48.0)
+            cy = max(16.0 - py, 0.0, py - 48.0)
+            sdf_box = (cx * cx + cy * cy) ** 0.5 - 16.0
+            if sdf_box > 1.0:
+                row.extend((0, 0, 0, 0))
+                continue
+            alpha_box = max(0.0, min(1.0, 1.0 - sdf_box))
+            t_grad = max(0.0, min(1.0, (px + py) / 128.0))
+            grad_rgb = (
+                int(round(14 + (99 - 14) * t_grad)),
+                int(round(165 + (102 - 165) * t_grad)),
+                int(round(233 + (241 - 233) * t_grad)),
+            )
+            col = (9, 13, 22, int(round(255 * alpha_box)))
+            # Border ring near edge (sdf_box in [-3.5, 0])
+            if -4.0 <= sdf_box <= 0.5:
+                border_a = max(0.0, min(1.0, (sdf_box + 3.5) / 1.0)) * alpha_box
+                if sdf_box < -2.0:
+                    border_a = max(0.0, min(1.0, (sdf_box + 4.0) / 1.0))
+                col = _blend(col, grad_rgb + (255,), border_a * 0.92)
+            # Diagonal slash (21,43) -> (43,21), radius 3.0
+            d_slash = _dist_seg(px, py, 21.0, 43.0, 43.0, 21.0)
+            if d_slash < 3.8:
+                col = _blend(col, grad_rgb + (255,), max(0.0, min(1.0, 3.3 - d_slash)))
+            # Top-left circle (22.5, 22.5, r=5.5)
+            d_tl = ((px - 22.5) ** 2 + (py - 22.5) ** 2) ** 0.5
+            if d_tl < 6.3:
+                col = _blend(col, (56, 189, 248, 255), max(0.0, min(1.0, 5.8 - d_tl)))
+            # Bottom-right circle (41.5, 41.5, r=5.5)
+            d_br = ((px - 41.5) ** 2 + (py - 41.5) ** 2) ** 0.5
+            if d_br < 6.3:
+                col = _blend(col, (129, 140, 248, 255), max(0.0, min(1.0, 5.8 - d_br)))
+            # Top-right emerald dot (51, 13, r=4.5)
+            d_dot = ((px - 51.0) ** 2 + (py - 13.0) ** 2) ** 0.5
+            if d_dot < 5.3:
+                col = _blend(col, (16, 185, 129, 255), max(0.0, min(1.0, 4.8 - d_dot)))
+            row.extend(col)
+        rows.append(bytes(row))
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    idat = zlib.compress(b"".join(rows), 9)
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", idat)
+        + _png_chunk(b"IEND", b"")
+    )
+    ico_header = struct.pack("<HHH", 0, 1, 1)
+    ico_entry = struct.pack("<BBBBHHII", size, size, 0, 0, 1, 32, len(png_bytes), 22)
+    return ico_header + ico_entry + png_bytes
+
+
+FAVICON_ICO_BYTES = _build_favicon_ico(32)
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HOST = "127.0.0.1"
@@ -1437,6 +1539,8 @@ LOGIN_HTML_PAGE = """<!DOCTYPE html>
     } catch (e) {}
   </script>
   <title>Discount · Sign In</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico" sizes="32x32">
   <style>
     :root {
       color-scheme: light dark;
@@ -1528,7 +1632,7 @@ LOGIN_HTML_PAGE = """<!DOCTYPE html>
 <body>
   <form class="card" id="login-form">
     <div class="brand">
-      <span class="dot"></span>
+      <img src="/favicon.svg" alt="" width="26" height="26" style="width:26px;height:26px;border-radius:7px;flex:none;" aria-hidden="true">
       <h1>Discount</h1>
     </div>
     <p class="sub">Sign in as administrator to continue</p>
@@ -1588,6 +1692,8 @@ HTML_PAGE = """<!DOCTYPE html>
     } catch (e) {}
   </script>
   <title>Discount</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.ico" sizes="32x32">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
@@ -2118,7 +2224,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <header class="top-nav">
     <div class="max-w-7xl mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2">
       <div class="flex items-center gap-2.5">
-        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+        <img src="/favicon.svg" alt="" width="26" height="26" class="w-6 h-6 sm:w-7 sm:h-7 rounded-lg shrink-0" aria-hidden="true">
         <h1 class="text-sm sm:text-base font-bold tracking-tight">Discount</h1>
       </div>
 
@@ -2150,16 +2256,16 @@ HTML_PAGE = """<!DOCTYPE html>
 
     <!-- ========================= View 1: Products ========================= -->
     <div id="view-products" class="block">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5 sm:gap-3 mb-4 sm:mb-5">
-        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <div class="flex gap-1.5" role="group" aria-label="Category">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-2.5 sm:flex-col sm:items-stretch md:flex-row md:items-center md:justify-between sm:gap-3 mb-4 sm:mb-5">
+        <div class="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          <div class="flex gap-1.5 order-1 sm:order-none" role="group" aria-label="Category">
             <button class="pill-btn type-btn active px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium" data-type="men" aria-pressed="true">Men</button>
             <button class="pill-btn type-btn px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium" data-type="women" aria-pressed="false">Women</button>
           </div>
 
           <span class="hidden sm:inline-block h-4 w-px mx-1" style="background: var(--border-subtle);"></span>
 
-          <div class="flex gap-1.5 overflow-x-auto scrollbar-hide" role="group" aria-label="Discount">
+          <div class="flex gap-1.5 overflow-x-auto scrollbar-hide order-3 sm:order-none w-full sm:w-auto" role="group" aria-label="Discount">
             <button class="pill-btn tab-btn active px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium" data-discount="70% off">70% Off</button>
             <button class="pill-btn tab-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium" data-discount="65% off">65% Off</button>
             <button class="pill-btn tab-btn px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium" data-discount="60% off">60% Off</button>
@@ -2167,13 +2273,13 @@ HTML_PAGE = """<!DOCTYPE html>
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs mono px-1.5 py-1 hidden sm:inline" style="color: var(--text-secondary);" id="update-time"></span>
-          <span class="text-xs mono font-semibold px-2.5 py-1 rounded-lg" style="background: var(--bg-pill); color: var(--accent-cyan);" id="item-count">0 items</span>
-          <select id="brand-filter" aria-label="Filter by brand" class="search-box px-2.5 py-1.5 text-xs sm:text-sm rounded-lg max-w-[130px] sm:max-w-[140px]">
+        <div class="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          <span class="text-xs mono px-0.5 sm:px-1.5 py-1 order-2 sm:order-none ml-auto sm:ml-0 min-w-0 sm:whitespace-nowrap" style="color: var(--text-secondary);" id="update-time"></span>
+          <span class="text-xs mono font-semibold px-2.5 py-1 rounded-lg order-4 sm:order-none" style="background: var(--bg-pill); color: var(--accent-cyan);" id="item-count">0 items</span>
+          <select id="brand-filter" aria-label="Filter by brand" class="search-box px-2.5 py-1.5 text-xs sm:text-sm rounded-lg max-w-[130px] sm:max-w-[140px] order-5 sm:order-none">
             <option value="all">All Brands</option>
           </select>
-          <input type="search" id="search" aria-label="Search products" placeholder="Search products..." class="search-box flex-1 sm:flex-none sm:w-44 min-w-[120px] px-3 py-1.5 text-xs sm:text-sm rounded-lg">
+          <input type="search" id="search" aria-label="Search products" placeholder="Search products..." class="search-box flex-1 sm:flex-none sm:w-44 min-w-[120px] px-3 py-1.5 text-xs sm:text-sm rounded-lg order-6 sm:order-none">
         </div>
       </div>
 
@@ -3123,7 +3229,17 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
-        if path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
+        if path == "/favicon.svg":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+        elif path == "/favicon.ico":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+        elif path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -3152,7 +3268,21 @@ class MultiProjectLogHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
-        if path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
+        if path == "/favicon.svg":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(FAVICON_SVG_BYTES)
+
+        elif path == "/favicon.ico":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/x-icon")
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(FAVICON_ICO_BYTES)
+
+        elif path in ("", "/log", "/logs", "/index.html") or parsed.path == "/":
             page_html = HTML_PAGE if self._is_authenticated() else LOGIN_HTML_PAGE
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")

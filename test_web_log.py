@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -422,6 +423,49 @@ class AuthAndMonitorConfigTests(unittest.TestCase):
             )
             self.assertTrue(tlh_url["valid"])
             self.assertEqual(tlh_url["matched_count"], 45)
+
+
+
+    def test_favicon_routes_and_html_links(self):
+        self.assertIn('href="/favicon.svg"', web_log.LOGIN_HTML_PAGE)
+        self.assertIn('href="/favicon.ico"', web_log.LOGIN_HTML_PAGE)
+        self.assertIn('href="/favicon.svg"', web_log.HTML_PAGE)
+        self.assertIn('href="/favicon.ico"', web_log.HTML_PAGE)
+        self.assertIn('<img src="/favicon.svg"', web_log.LOGIN_HTML_PAGE)
+        self.assertIn('<img src="/favicon.svg"', web_log.HTML_PAGE)
+
+        server = HTTPServer(("127.0.0.1", 0), web_log.MultiProjectLogHandler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = f"http://127.0.0.1:{port}"
+            with urllib.request.urlopen(f"{base}/favicon.svg") as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("image/svg+xml", resp.headers.get("Content-Type", ""))
+                self.assertIn(b"<svg", resp.read())
+
+            with urllib.request.urlopen(f"{base}/favicon.ico") as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("image/x-icon", resp.headers.get("Content-Type", ""))
+                ico = resp.read()
+                self.assertTrue(ico.startswith(b"\x00\x00\x01\x00"))
+                self.assertIn(b"\x89PNG", ico)
+
+            head_req = urllib.request.Request(f"{base}/favicon.ico", method="HEAD")
+            with urllib.request.urlopen(head_req) as resp:
+                self.assertEqual(resp.status, 200)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_update_time_visible_on_mobile(self):
+        match = re.search(r'<span[^>]*id="update-time"[^>]*>', web_log.HTML_PAGE)
+        self.assertIsNotNone(match)
+        tag = match.group(0)
+        self.assertNotIn("hidden", tag)
+        self.assertIn("order-2", tag)
+        self.assertIn("sm:order-none", tag)
 
 
 if __name__ == "__main__":
